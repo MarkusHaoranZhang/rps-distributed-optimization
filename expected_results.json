@@ -1,0 +1,54 @@
+{
+  "_meta": {
+    "mode": "quick",
+    "config": "N=30 (fig2/6), T=600 (fig2/6), MC=3, seed=0..14, dataset=synthetic, drift_cap=40",
+    "purpose": "让读者跑完 `python main.py --quick` 后能与本快照对比；数字会因随机种子有 ±10% 浮动，但量级和方法间排序应一致。",
+    "snapshot_generated_at_version": "0.4.7",
+    "regenerate_command": "python main.py --quick",
+    "wall_clock_total_seconds_approx": 510,
+    "see_also_full_mode": "expected_results_full.json (N=50, MC=20, ~2.5h)"
+  },
+  "fig2_finals_mean_x1e3": {
+    "Constant bias": {
+      "Ideal": 0.0,
+      "Hard-Threshold": 5.78,
+      "Uniform-Discount": 4.57,
+      "Byzantine-Resilient": 4.57,
+      "RPS-Symmetric": 5.32,
+      "RPS-Full": 4.76
+    },
+    "Gradual drift": {
+      "Ideal": 0.0,
+      "Hard-Threshold": 42.53,
+      "Uniform-Discount": 36.58,
+      "Byzantine-Resilient": 36.58,
+      "RPS-Symmetric": 41.83,
+      "RPS-Full": 39.66
+    },
+    "Intermittent": {
+      "Ideal": 0.0,
+      "Hard-Threshold": 6.26,
+      "Uniform-Discount": 5.14,
+      "Byzantine-Resilient": 4.65,
+      "RPS-Symmetric": 5.39,
+      "RPS-Full": 4.85
+    }
+  },
+  "ablation_mean_x1e3": {
+    "RPS-Full": 38.88,
+    "RPS-NoOrder": 46.28,
+    "RPS-Symmetric": 46.28,
+    "note": "ablation: RPS-Full 显著优于两个消融变体（d=0.87，对应论文 4.5.2 论断方向）"
+  },
+  "wilcoxon_holm_drift_vs_RPS_Full": {
+    "Hard-Threshold": {"d": 1.83, "interpretation": "RPS-Full 显著优于 HT（论文 §1 中心论断）"},
+    "Uniform-Discount": {"d": -1.79, "interpretation": "UD 在 quick mode 下小幅占优（MC=3 噪声大；完整模式下 d=-0.05 等同）"},
+    "RPS-Symmetric": {"d": 1.57, "interpretation": "RPS-Full 显著优于 RPS-Sym（论文 §4.5.2 论断）"}
+  },
+  "paper_claims_correspondence_quick_mode": {
+    "section_1_RPS_beats_HT": "fully_corresponded (Drift d=1.83, Constant d=3.95)",
+    "section_4_5_2_Sym_NoOrder_worse_than_Full": "fully_corresponded (ablation d=0.87)",
+    "section_4_5_3_Constant_RPS_optimal": "partial_in_quick_mode (quick MC=3: RPS-Full=4.76 vs UD=4.57; full mode N=50 MC=20 RPS-Full=3.82 < UD=4.03 fully_corresponded)",
+    "see_full_mode_for_definitive_numbers": "expected_results_full.json"
+  }
+}

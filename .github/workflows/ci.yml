@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # 论文配套：固定一个版本即可
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Type check with mypy
+        # `pyproject.toml` 里 `[tool.mypy]` 设置了 exclude，等价于显式列举所有
+        # 模块；新加模块时不用更新 CI。
+        run: mypy .
+
+      - name: Run pytest
+        run: pytest tests/ -v
+
+      - name: Verify modeling assumptions
+        run: python verify_assumptions.py

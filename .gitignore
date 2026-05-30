@@ -1,0 +1,21 @@
+# Python 编译缓存
+__pycache__/
+*.pyc
+
+# 工具缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 本地数据下载缓存（MNIST 等）
+_data/
+
+# 本地临时日志/文本/调试脚本
+# 注意 glob 是 _<...>.py 不是 __<...>.py，避免误伤 __init__.py
+_[a-z]*.log
+_[a-z]*.txt
+_[a-z]*.py
+
+# 实验产物（quick / full 跑出来的 figure 与 results.json）
+results.json
+fig_*.pdf
