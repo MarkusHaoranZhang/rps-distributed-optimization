@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite both the paper and this software archive."
+title: "RPS-based Distributed Optimization under Soft Faults (paper companion)"
+abstract: >-
+  Companion implementation for the paper
+  "Random Permutation Set-Based Diagnosis for Reliable Large-Scale
+  Distributed Optimization Under Soft Faults".
+  Implements the full paper methodology (Eq. 1-12 + Algorithm 1) and
+  reproduces the 8 figures and 2 tables, with 7 baseline/ablation
+  methods over 3 benchmark datasets.
+type: software
+authors:
+  - family-names: Zhang
+    given-names: Haoran
+    affiliation: "School of Electronic Engineering, Xidian University"
+    email: zhr@stu.xidian.edu.cn
+license: MIT
+version: "0.4.8"
+date-released: "2026-05-30"
+url: "https://github.com/MarkusHaoranZhang/rps-distributed-optimization"
+repository-code: "https://github.com/MarkusHaoranZhang/rps-distributed-optimization"
+doi: "10.5281/zenodo.20461461"
+keywords:
+  - distributed optimization
+  - fault diagnosis
+  - random permutation set
+  - multi-agent systems
+  - soft fault tolerance
+preferred-citation:
+  type: article
+  title: "Random Permutation Set-Based Diagnosis for Reliable Large-Scale Distributed Optimization Under Soft Faults"
+  authors:
+    - family-names: Zhang
+      given-names: Haoran
+    - family-names: Xing
+      given-names: Lining
+    - family-names: Zhou
+      given-names: Zhijie
+    - family-names: Zhou
+      given-names: Guohui
+    - family-names: He
+      given-names: Wei
+    - family-names: Zhang
+      given-names: Yuanlong
+    - family-names: Li
+      given-names: Jun
+  year: 2026
+  notes: "Submitted; update journal/volume/pages/DOI when published."

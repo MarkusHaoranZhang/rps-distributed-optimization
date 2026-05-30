@@ -1,6 +1,10 @@
 # RPS-based Distributed Optimization under Soft Faults
 
-[License: MIT](./LICENSE) · 论文配套实现 · Python 3.10+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20461461.svg)](https://doi.org/10.5281/zenodo.20461461)
+
+论文配套实现 · Python 3.10+
 
 论文 *Random Permutation Set-Based Diagnosis for Reliable Large-Scale
 Distributed Optimization Under Soft Faults* 的配套实现。代码闭环实现了
