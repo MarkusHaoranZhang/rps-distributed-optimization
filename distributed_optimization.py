@@ -1,12 +1,14 @@
 """
-分布式优化核心模块
-====================
+Distributed-optimization core module
+=====================================
 
-实现论文方法论中的：
-- 随机几何图 + Metropolis-Hastings 双随机权重 (Section 4.4)
-- 软故障注入：constant / drift / intermittent (Eq. 3)
-- 残差 r_i^{(k)} = ∇f_i(x_i) - Σ_j a_ij ∇f_j(x_j) (Eq. 4)
-- 梯度跟踪更新 (Eq. 2) 和带 γ 的鲁棒更新 (Eq. 6)
+Implements the methodology from the paper:
+- Random geometric graph + Metropolis-Hastings doubly-stochastic weights
+  (Section 4.4)
+- Soft-fault injection: constant / drift / intermittent (Eq. 3)
+- Residual r_i^{(k)} = grad f_i(x_i) - sum_j a_ij grad f_j(x_j) (Eq. 4)
+- Gradient-tracking update (Eq. 2) and the gamma-discounted robust update
+  (Eq. 6).
 """
 
 from __future__ import annotations
@@ -18,21 +20,27 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 def build_graph(N, radius=None, seed=0, max_attempts=20):
-    """生成无向随机几何图，确保强连通（无向图等价于连通）。
+    """Build an undirected random geometric graph that is guaranteed to be
+    strongly connected (which, for an undirected graph, is the same as
+    connected).
 
-    radius 缺省时取 ``1.2 * sqrt(log(N+1)/N)``——RGG 连通性阈值的标准估计加
-    1.2 安全系数；若初次尝试不连通，按 ``r ← r * (1 + 0.05·attempt)`` 渐增半径
-    直到连通。这是对论文 4.4.4 "minimum radius ensuring strong connectivity"
-    的工程近似（理论下界 + 自适应增长），不是严格意义上的"最小半径"。
+    When ``radius`` is unspecified we use ``1.2 * sqrt(log(N+1)/N)`` -- a
+    standard estimate of the RGG connectivity threshold with a 1.2 safety
+    factor. If the first attempt is not connected we grow the radius via
+    ``r <- r * (1 + 0.05 * attempt)`` until connectivity is achieved. This is
+    an engineering approximation of the "minimum radius ensuring strong
+    connectivity" mentioned in Section 4.4.4 (theoretical lower bound +
+    adaptive growth), not a strict "minimum radius" in the formal sense.
 
-    返回 (W, adj, pos)，其中 W 是 Metropolis-Hastings 双随机权重矩阵。
+    Returns ``(W, adj, pos)`` where ``W`` is the Metropolis-Hastings
+    doubly-stochastic weight matrix.
     """
     rng = np.random.RandomState(seed)
     base_radius = radius if radius is not None else 1.2 * np.sqrt(np.log(N + 1) / N)
 
     for attempt in range(max_attempts):
         pos = rng.rand(N, 2)
-        r = base_radius * (1.0 + 0.05 * attempt)  # 渐增半径直到连通
+        r = base_radius * (1.0 + 0.05 * attempt)  # grow radius until connected
         adj = np.zeros((N, N))
         for i in range(N):
             for j in range(i + 1, N):
@@ -54,7 +62,7 @@ def build_graph(N, radius=None, seed=0, max_attempts=20):
 
 
 def _is_connected(adj):
-    """连通性检查（DFS）。"""
+    """Connectivity check (DFS)."""
     N = adj.shape[0]
     visited = np.zeros(N, dtype=bool)
     stack = [0]
@@ -69,7 +77,8 @@ def _is_connected(adj):
 
 
 def hop_neighborhood(adj, i, h):
-    """返回智能体 i 的 h-hop 邻域（包含 i 自己）作为升序索引列表。"""
+    """Return the ``h``-hop neighborhood of agent ``i`` (including ``i``
+    itself) as a sorted list of indices."""
     visited = {i}
     frontier = {i}
     for _ in range(h):
@@ -90,23 +99,36 @@ def hop_neighborhood(adj, i, h):
 # ---------------------------------------------------------------------------
 
 def apply_fault_injection(t, fault_config, N, d, rng):
-    """根据故障配置返回 (faulty_mask, delta)，delta 形状 (N, d)。
+    """Return ``(faulty_mask, delta)`` for the current step, with ``delta``
+    of shape ``(N, d)``.
 
-    论文 Section 4.4 假设 small-fault regime：偏差有界。
-    - constant   : 故障 onset 起恒定偏差 base_delta。
-    - drift      : 以速率 base_delta 线性渐增，饱和于 drift_cap。
-                   这是物理上的传感器渐变漂移，渐进至稳态偏差。论文实验
-                   中所有 drift 调用点都显式设置 ``drift_cap=40``（让稳态
-                   故障量级 0.002 × 40 = 0.08 落在 small-fault regime 内）；
-                   函数级默认 100 仅作 schema fallback，不应直接依赖。
-    - intermittent : 故障期内以概率 prob 出现一次幅度为 base_delta 的偏差。
+    Section 4.4 of the paper assumes the small-fault regime: bounded offsets.
+
+    - ``constant``    : starting at the onset, a constant offset
+                        ``base_delta``.
+    - ``drift``       : linear ramp at rate ``base_delta`` per step,
+                        saturating at ``drift_cap``. This models a physical
+                        sensor's gradual drift toward a steady-state offset.
+                        Every drift call site in the paper experiments
+                        explicitly sets ``drift_cap=40`` (so the steady-state
+                        magnitude 0.002 * 40 = 0.08 still lies within the
+                        small-fault regime); the function-level default of
+                        100 is only a schema fallback and should not be
+                        relied on directly.
+    - ``intermittent`` : during the fault period, with probability ``prob``
+                        a single offset of magnitude ``base_delta`` is
+                        applied.
 
     .. note::
-       ``rng`` 由 ``run_optimization`` 主循环传入，与初始 X 采样、共识扰动等共
-       享。这意味着如果未来 RPS 路径里加入随机性（例如 Monte Carlo PMF
-       估计），上游的 rng 消耗会改变 intermittent 触发序列。当前所有 RPS 路径
-       都是确定性的，故没问题；如要修改 RPS 内部用到 rng 时，建议为故障注入
-       分配独立 ``RandomState(seed + 1)`` 以保护 intermittent 序列的可复现性。
+       ``rng`` is passed in by the main loop in ``run_optimization`` and is
+       shared with initial-X sampling, consensus perturbations, etc. This
+       means that if randomness is ever added to the RPS path (e.g. Monte
+       Carlo PMF estimation), upstream consumption of the rng would change
+       the intermittent trigger sequence. All current RPS paths are
+       deterministic, so this is fine; if rng is added inside RPS in the
+       future, allocate a separate ``RandomState(seed + 1)`` for fault
+       injection to protect the reproducibility of the intermittent
+       sequence.
     """
     faulty_mask = np.zeros(N, dtype=bool)
     delta = np.zeros((N, d))
@@ -123,7 +145,7 @@ def apply_fault_injection(t, fault_config, N, d, rng):
         elif ftype == 'drift':
             faulty_mask[ag] = True
             elapsed = t - fault_config['onset'] + 1
-            cap = float(fault_config.get('drift_cap', 100.0))  # 单位为 base_delta 的倍数
+            cap = float(fault_config.get('drift_cap', 100.0))  # in units of base_delta
             ramp = min(elapsed, cap)
             delta[ag] = base_delta * ramp
         elif ftype == 'intermittent':
@@ -136,7 +158,8 @@ def apply_fault_injection(t, fault_config, N, d, rng):
 
 
 def compute_local_gradients(X, grad_fn_list, faulty_mask, delta):
-    """每个智能体计算自己的（含故障的）局部梯度，返回 (N, d) 矩阵。"""
+    """Each agent computes its own (possibly faulty) local gradient.
+    Returns an ``(N, d)`` matrix."""
     N, d = X.shape
     grad = np.zeros_like(X)
     for i in range(N):
@@ -147,9 +170,11 @@ def compute_local_gradients(X, grad_fn_list, faulty_mask, delta):
 
 
 def compute_residuals(grad, W):
-    """残差 r_i^{(k)} = ∇f_i(x_i) - Σ_j a_ij ∇f_j(x_j)，向量化实现。
+    """Residual ``r_i^{(k)} = grad f_i(x_i) - sum_j a_ij grad f_j(x_j)``,
+    vectorized.
 
-    返回标量残差范数 (N,) 与残差向量 (N, d)。
+    Returns the scalar residual norms ``(N,)`` and the residual vectors
+    ``(N, d)``.
     """
     nb_avg = W @ grad
     res_vec = grad - nb_avg
@@ -162,22 +187,25 @@ def compute_residuals(grad, W):
 # ---------------------------------------------------------------------------
 
 def gradient_tracking_step(X, Y, grad_old, grad_new, W, alpha, gamma=None):
-    """一步梯度跟踪更新。
+    """One gradient-tracking step.
 
-    - 当 ``gamma is None`` 时执行论文 Eq. (2)：
-        X_{k+1} = W X_k − α Y_k
-        Y_{k+1} = W Y_k + (∇f(x_{k+1}) − ∇f(x_k))
+    - When ``gamma is None``, performs the paper's Eq. (2):
+        X_{k+1} = W X_k - alpha Y_k
+        Y_{k+1} = W Y_k + (grad f(x_{k+1}) - grad f(x_k))
 
-    - 当 ``gamma`` 给出 (N, N) 矩阵时执行论文 Eq. (6) 的扩展：
-        x_i^{(k+1)} = Σ_j ā_ij x_j^{(k)} − α y_i^{(k)}
-        y_i^{(k+1)} = Σ_j ā_ij y_j^{(k)} + (∇f_i^{new} − ∇f_i^{old})
+    - When ``gamma`` is an ``(N, N)`` matrix, performs the extended Eq. (6):
+        x_i^{(k+1)} = sum_j abar_ij x_j^{(k)} - alpha y_i^{(k)}
+        y_i^{(k+1)} = sum_j abar_ij y_j^{(k)} + (grad f_i^{new} - grad f_i^{old})
 
-      其中 ``ā_ij = γ_ij W_ij + (1−γ_ij)·δ_ij``，即把折扣的邻居权重转移
-      给自身，保持每行之和为 1（双随机性的局部修复），从而避免被屏蔽
-      agent 的状态污染共识、同时维持收敛常数。
+      where ``abar_ij = gamma_ij * W_ij + (1 - gamma_ij) * delta_ij``: the
+      mass that was discounted away from a neighbor is returned to the
+      diagonal so each row still sums to 1 (a local repair of double
+      stochasticity). This avoids contaminating the consensus state with
+      masked-out agents while preserving the convergence constants.
 
-      ``gamma=None`` 等价于 ``ā = W``，两条路径数值上一致（由
-      ``test_gradient_tracking_step_actually_uses_gamma`` 守门）。
+      ``gamma=None`` is exactly equivalent to ``abar = W`` -- the two paths
+      are numerically identical (guarded by
+      ``test_gradient_tracking_step_actually_uses_gamma``).
     """
     if gamma is None:
         A_eff = W
@@ -197,36 +225,46 @@ def gradient_tracking_step(X, Y, grad_old, grad_new, W, alpha, gamma=None):
 
 def simulate_symmetric_packet_loss(W: np.ndarray, loss_rate: float,
                                     rng: np.random.RandomState) -> np.ndarray:
-    """对称丢包后的双随机权重矩阵（论文 4.5.3 的"通信退化"模拟）。
+    """Return a doubly-stochastic weight matrix after symmetric packet
+    loss ("communication degradation" simulation in Section 4.5.3).
 
-    丢包模型：
-    - 以概率 ``loss_rate`` 同时丢 ``W[i, j]`` 与 ``W[j, i]``（对称丢包）。
-    - 把每行被丢失的权重之和加到对角，恢复行和=1。
-    - 因 drop 与对角修补都对称，结果矩阵对称；对称 + 行和=1 ⇒ 列和=1，
-      仍是合法的双随机矩阵。
+    Loss model:
+    - With probability ``loss_rate``, both ``W[i, j]`` and ``W[j, i]`` are
+      dropped (symmetric loss).
+    - For each row, the dropped weight mass is added to the diagonal so row
+      sums return to 1.
+    - Because both the drop and the diagonal repair are symmetric, the
+      result is still symmetric; symmetric + row-sum 1 implies column-sum 1,
+      i.e. the result is still a valid doubly-stochastic matrix.
 
-    为什么必须双随机：
-    - X 步进 ``W X − α Y`` 需要**行随机**（共识收敛）；
-    - Y 步进 ``W Y + Δgrad`` 需要**列随机**（梯度平均不变量）。
-    - 只修行不修列会让 Y-tracking 失效，figure_5 测的就不再是丢包鲁棒性。
+    Why double stochasticity is required:
+    - The X update ``W X - alpha Y`` needs **row stochasticity** (consensus
+      convergence).
+    - The Y update ``W Y + delta_grad`` needs **column stochasticity** (the
+      gradient-average invariant).
+    - Repairing rows but not columns would break Y-tracking and figure_5
+      would no longer measure packet-loss robustness.
 
     .. note::
-       本简化把丢包建模为 W 上的"永久删边"（一次实验内固定）。论文 4.5.3
-       描述的是 per-iteration packet drops（时变 W）；要让时变 W 仍维持
-       双随机性需要 Sinkhorn 迭代，成本远高于本简化。读者应理解 figure_5
-       中间子图反映的是"网络稀疏化后 RPS 鲁棒性"，而非"逐步丢包下 RPS
-       鲁棒性"。
+       This simplification models packet loss as a "permanent edge removal"
+       on W (fixed within a single experiment). Section 4.5.3 of the paper
+       describes per-iteration packet drops (time-varying W); keeping
+       time-varying W doubly stochastic would require Sinkhorn iterations,
+       at much higher cost than this simplification. Readers should
+       interpret the middle panel of figure_5 as "RPS robustness under a
+       sparsified network", not "RPS robustness under per-iteration packet
+       drops".
 
     Parameters
     ----------
-    W         : Metropolis-Hastings 双随机权重矩阵 (N, N)
-    loss_rate : 丢包率，[0, 1]
-    rng       : 随机数发生器
+    W         : Metropolis-Hastings doubly-stochastic weight matrix ``(N, N)``
+    loss_rate : packet-loss rate, in ``[0, 1]``
+    rng       : random number generator
 
     Returns
     -------
     np.ndarray
-        丢包后的 W_mod，仍是双随机的对称矩阵。
+        ``W_mod`` after losses; still a doubly-stochastic symmetric matrix.
     """
     if not (0.0 <= loss_rate <= 1.0):
         raise ValueError(f"loss_rate must be in [0, 1], got {loss_rate}")

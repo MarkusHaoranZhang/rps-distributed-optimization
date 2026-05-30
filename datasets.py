@@ -1,9 +1,10 @@
 """
-数据集加载与代价模型工厂
-==========================
+Dataset loading and cost-model factories
+=========================================
 
-本模块负责数据加载（MNIST 下载、PCA 降维、非 IID 切分）和实例化
-``costs.py`` 中的代价类。代价模型本身在 ``costs.py``。
+This module handles data loading (MNIST download, PCA dimensionality
+reduction, non-IID partitioning) and instantiates the cost classes from
+``costs.py``. The cost models themselves live in ``costs.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ _MNIST_TRAIN_URLS = {
     "train_images": "https://ossci-datasets.s3.amazonaws.com/mnist/train-images-idx3-ubyte.gz",
     "train_labels": "https://ossci-datasets.s3.amazonaws.com/mnist/train-labels-idx1-ubyte.gz",
 }
-"""仅训练集 URL；分布式优化只用 train，不需要 test。"""
+"""Training-set URLs only; distributed optimization uses train, not test."""
 
 
 def _download(url: str, dst: str) -> None:
@@ -62,7 +63,8 @@ def _read_idx_labels(path: str) -> np.ndarray:
 
 
 def load_mnist(cache_dir: str = "./_data"):
-    """下载（仅首次）并加载 MNIST 训练集。返回 ``(X, y)``。"""
+    """Download (only on first call) and load the MNIST training set.
+    Returns ``(X, y)``."""
     img_path = os.path.join(cache_dir, "train-images-idx3-ubyte.gz")
     lbl_path = os.path.join(cache_dir, "train-labels-idx1-ubyte.gz")
     try:
@@ -82,20 +84,23 @@ def load_mnist(cache_dir: str = "./_data"):
 def make_mnist_noniid(N: int = 100, classes_per_agent: int = 3, n_class: int = 10,
                        samples_per_agent: int = 200, feature_dim: int = 64,
                        seed: int = 0) -> LogRegCost:
-    """非 IID 分配：每个 agent 拿 ``classes_per_agent`` 个数字类的样本。
+    """Non-IID partition: each agent receives samples from
+    ``classes_per_agent`` digit classes.
 
-    出于 RAM/速度考虑，特征做 PCA 降维到 ``feature_dim`` 维。
+    For RAM/speed reasons the features are reduced to ``feature_dim`` via PCA.
 
     .. warning::
-       默认 ``samples_per_agent=200`` × ``feature_dim=64`` × ``n_class=10`` 是欠
-       定问题（参数 640 > 样本 200），靠 L2 reg=1e-3 救稳。``LogRegCost.global_optimum``
-       的收敛性比 synthetic LS 弱，trial-to-trial 方差较大。``--dataset mnist`` 的
-       结果建议用 MC ≥ 10。
+       The defaults ``samples_per_agent=200`` x ``feature_dim=64`` x
+       ``n_class=10`` give an under-determined problem (640 parameters vs.
+       200 samples) that is held together by L2 reg=1e-3. The convergence of
+       ``LogRegCost.global_optimum`` is weaker than for synthetic LS, and
+       trial-to-trial variance is larger. We recommend MC >= 10 for
+       ``--dataset mnist``.
     """
     X, y = load_mnist()
     rng = np.random.RandomState(seed)
 
-    # PCA：抽 5000 个样本中心化后 SVD
+    # PCA: take 5000 samples, center, then SVD.
     Xc = X - X.mean(axis=0, keepdims=True)
     idx_pca = rng.choice(len(X), size=min(5000, len(X)), replace=False)
     _, _, Vt = np.linalg.svd(Xc[idx_pca], full_matrices=False)
@@ -130,13 +135,17 @@ def make_mnist_noniid(N: int = 100, classes_per_agent: int = 3, n_class: int = 1
 # ---------------------------------------------------------------------------
 
 def make_ieee39_dispatch(seed: int = 0) -> QuadraticDispatchCost:
-    """生成 IEEE 39 总线系统的 39 个发电机二次代价系数。
+    """Generate the 39 quadratic generator-cost coefficients for the IEEE
+    39-bus system.
 
     .. warning::
-       论文里没给具体系数；这里用文献中典型的经济调度系数范围生成可复现
-       的随机系数。结果**不可与 MATPOWER / PYPOWER 等标准 39-bus benchmark
-       的绝对数值直接比较**——读者跑出的总成本数字是相对意义上的，仅
-       用于方法间趋势对比。
+       The paper does not specify exact coefficients; we sample reproducible
+       random coefficients from a typical economic-dispatch range found in
+       the literature. The resulting numbers **cannot be compared directly**
+       with the absolute totals from standard 39-bus benchmarks such as
+       MATPOWER or PYPOWER. The total-cost figures the reader will see are
+       only meaningful in a relative sense, for trend comparison between
+       methods.
     """
     rng = np.random.RandomState(seed)
     N = 39

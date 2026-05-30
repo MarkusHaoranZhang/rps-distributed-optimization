@@ -1,4 +1,4 @@
-"""使 ``tests/`` 能 import 项目根目录的模块。"""
+"""Make ``tests/`` able to import modules from the project root."""
 import os
 import sys
 

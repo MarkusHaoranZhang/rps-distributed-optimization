@@ -1,22 +1,25 @@
 """
-出图脚本：生成论文 8 张图
-==========================
+Plotting scripts: produce the eight figures from the paper
+===========================================================
 
-每张图都接入真实实验产出的数据；不再硬编码任何分布参数。
+Every figure consumes data produced by real experiments; no distribution
+parameter is hard-coded.
 
-使用 matplotlib 的非交互 ``Agg`` 后端：所有 ``plot_figureN`` 都直接保存
-PDF，不弹出 GUI 窗口。这让出图在无显示的 CI / 远程环境下也能稳定运行。
+We use matplotlib's non-interactive ``Agg`` backend so each ``plot_figureN``
+saves a PDF directly without opening a GUI window. This keeps figure
+generation stable in headless CI / remote environments.
 """
 
 from __future__ import annotations
 
 import matplotlib
 
-# Agg 后端必须在 import pyplot 之前设置——否则在已经导入 pyplot 的环境
-# （例如 Jupyter）里 use("Agg") 会被忽略，导致无 GUI 环境出图失败。
+# The Agg backend must be selected **before** ``pyplot`` is imported. If
+# pyplot has already been imported (e.g. inside Jupyter), ``use("Agg")``
+# is silently ignored and figure generation breaks in headless environments.
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402  必须在 use("Agg") 之后
+import matplotlib.pyplot as plt  # noqa: E402  must come after ``use("Agg")``
 import numpy as np  # noqa: E402
 
 plt.rcParams.update({
@@ -61,8 +64,9 @@ def plot_figure1(residuals, faulty_idx, direct_idx, twohop_idx, fault_onset,
                  save_path="fig_preliminary.pdf"):
     t = np.arange(residuals.shape[0])
     fig, ax = plt.subplots(figsize=(8, 4))
-    # 残差范数横跨多个数量级（10^-4 到 10^0），用 log y 让 spatial attenuation
-    # 可见。线性 y 轴下两-hop 残差会被压缩到 0 附近不可见。
+    # Residual norms span several orders of magnitude (10^-4 to 10^0); a
+    # log y-axis keeps spatial attenuation visible. On a linear y-axis
+    # the two-hop residual is squashed near 0 and disappears.
     ax.set_yscale('log')
     ax.plot(t, residuals[:, faulty_idx], label="Faulty agent", linewidth=1.0,
             alpha=0.8, color=C2)
@@ -102,11 +106,13 @@ def plot_figure2(fig2_data, methods, scenarios, save_path="fig_comparative.pdf")
 # ---------------------------------------------------------------------------
 
 def plot_figure3(fig3_data, save_path="fig_sensitivity.pdf"):
-    """参数敏感性 4 子图。
+    """Four-panel parameter sensitivity.
 
-    y 轴用 log scale：参数扫描里 final error 容易跨多个量级（如 τ 取极小值时
-    RPS 折扣过强收敛变慢；hop=1 时诊断作用域不足导致 error 飙升）。线性 y
-    会把小 error 点压扁。
+    The y-axis uses a log scale: under a parameter sweep the final error
+    can span several orders of magnitude (e.g. very small tau makes the
+    RPS discount too aggressive and slows convergence; ``hop=1`` shrinks
+    the diagnosable scope and the error blows up). A linear y-axis flattens
+    the small-error points into invisibility.
     """
     xlabels = ["$s$", "$\\eta$", "$\\tau$ scaling", "$h$"]
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
@@ -154,19 +160,23 @@ def plot_figure4(alphas, etas_inv, conv_mask, kappa_emp,
 
 def plot_figure5(deltas, gaps, loss_rates, perf_retain, nfaults, accs,
                  save_path="fig_stress.pdf"):
-    """三子图压力测试。
+    """Three-panel stress test.
 
     Parameters
     ----------
-    deltas       : 故障幅度数组
-    gaps         : RPS-Full vs Hard-Threshold 性能差（%，相对值）
-    loss_rates   : 通信丢包率（%）
-    perf_retain  : RPS-Full 在不同丢包率下的 final relative error（无量纲，
-                   不是百分比）。读者关心的是 trend：丢包越大 error 越大；
-                   论文 4.5.3 文字描述的 "retains 80% of advantage" 不在此
-                   图直接计算（避免 0/0 折算误导），具体阈值留给文字描述。
-    nfaults      : 同时故障 agent 数
-    accs         : RPS-Full 在不同故障数下的 final relative error
+    deltas       : array of fault magnitudes.
+    gaps         : performance gap (%, relative) of RPS-Full over
+                   Hard-Threshold.
+    loss_rates   : communication packet-loss rates (%).
+    perf_retain  : RPS-Full's final relative error at each loss rate
+                   (dimensionless, not a percentage). What the reader
+                   cares about is the trend: error grows with loss. The
+                   "retains 80% of advantage" phrase from Section 4.5.3
+                   of the paper is not computed directly in this figure
+                   (to avoid misleading 0/0 divisions); the specific
+                   threshold is left to the prose.
+    nfaults      : number of simultaneously faulty agents.
+    accs         : RPS-Full's final relative error at each fault count.
     """
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
     axes[0].plot(deltas, gaps, marker='s', color=C0, linewidth=1.8, markersize=7,
@@ -205,8 +215,9 @@ def plot_figure6(full_err, noorder_err, sym_err, save_path="fig_ablation.pdf"):
     data = [full_err * 1e3, noorder_err * 1e3, sym_err * 1e3]
     labels = ["RPS-Full", "RPS-NoOrder", "RPS-Symmetric"]
     colors = [C0, C3, C1]
-    # 用 set_xticks 设置 tick label，兼容 matplotlib 3.5 - 当前所有版本：
-    # `labels=` kwarg 在 3.9 起 deprecated，`tick_labels=` 在 < 3.9 不存在。
+    # Use set_xticks for tick labels: this stays compatible with
+    # matplotlib 3.5 .. current. The ``labels=`` kwarg of boxplot was
+    # deprecated in 3.9, and ``tick_labels=`` does not exist before 3.9.
     bp = ax.boxplot(data, patch_artist=True, widths=0.5)
     ax.set_xticks(range(1, len(labels) + 1))
     ax.set_xticklabels(labels)
@@ -224,20 +235,22 @@ def plot_figure6(full_err, noorder_err, sym_err, save_path="fig_ablation.pdf"):
 # ---------------------------------------------------------------------------
 
 def plot_figure7(ht_mtcd, rps_mtcd, save_path="fig_diagnostic.pdf"):
-    """诊断延迟分布对比图（论文 Figure 4 / 代码内 fig 7）。
+    """Diagnostic-delay distribution (paper Figure 4; ``fig 7`` in this
+    codebase).
 
     Parameters
     ----------
-    ht_mtcd  : 1D 数组，Hard-Threshold 在 MC trials 上的 MTCD 分布
-    rps_mtcd : 1D 数组，RPS-Full 在 MC trials 上的 MTCD 分布
+    ht_mtcd  : 1-D array, Hard-Threshold's MTCD distribution over MC trials.
+    rps_mtcd : 1-D array, RPS-Full's MTCD distribution over MC trials.
     """
     fig, ax = plt.subplots(figsize=(7, 4.5))
     data = [np.asarray(ht_mtcd, dtype=float),
             np.asarray(rps_mtcd, dtype=float)]
     labels = ["Hard-Threshold", "RPS-Full"]
     colors = [C3, C0]
-    # 同 plot_figure6：用 set_xticklabels 而非 boxplot 的 labels=/tick_labels=
-    # 跨 matplotlib 版本（3.5 - 当前）兼容。
+    # Same as plot_figure6: use set_xticklabels rather than boxplot's
+    # labels= / tick_labels= for cross-version (3.5 .. current)
+    # compatibility.
     bp = ax.boxplot(data, patch_artist=True, widths=0.5)
     ax.set_xticks(range(1, len(labels) + 1))
     ax.set_xticklabels(labels)

@@ -1,4 +1,5 @@
-"""``run_optimization`` 的端到端冒烟：每个方法都能正常返回有限值。"""
+"""End-to-end smoke test for ``run_optimization``: every method must
+return finite values."""
 
 import numpy as np
 import pytest
@@ -38,7 +39,8 @@ def test_each_method_runs(method, small_setup):
 
 
 def test_ideal_converges_close_to_zero(small_setup):
-    """无故障 Ideal 应在足够步数后收敛到比初始误差小至少两个数量级。"""
+    """With no fault, Ideal should converge by at least two orders of
+    magnitude after enough steps."""
     s = small_setup
     cfg = RPSConfig(burn_in=40, window_len=10, top_m=8, diagnose_every=5)
     T_long = 600
@@ -50,11 +52,12 @@ def test_ideal_converges_close_to_zero(small_setup):
         cfg=cfg, seed=0,
     )
     assert err_ideal[-1] < err_ideal[0] / 100, (
-        f"Ideal err did not drop 2 orders: {err_ideal[0]} → {err_ideal[-1]}")
+        f"Ideal err did not drop 2 orders: {err_ideal[0]} -> {err_ideal[-1]}")
 
 
 def test_recovery_time_is_finite(small_setup):
-    """RPS-Full 在 drift 下应在故障期内有可测的 recovery time（非 nan）。"""
+    """Under drift, RPS-Full should have a measurable (non-nan)
+    recovery time within the fault period."""
     s = small_setup
     cfg = RPSConfig(burn_in=40, window_len=10, top_m=8, diagnose_every=5)
     fault_cfg = {'onset': 50, 'agents': [2], 'type': 'constant',
@@ -65,12 +68,13 @@ def test_recovery_time_is_finite(small_setup):
         W=s['W'], adj=s['adj'], cost=s['cost'], cfg=cfg, seed=0,
     )
     rt = recovery_time(err, fault_cfg['onset'])
-    # 不要求一定在故障内恢复；但要求不是 nan
+    # We do not require recovery within the fault period, but the value
+    # must not be NaN.
     assert not (rt != rt), "recovery_time returned nan"
 
 
 def test_resilience_metric_nonneg(small_setup):
-    """resilience_metric ≥ 0。"""
+    """``resilience_metric >= 0``."""
     s = small_setup
     cfg = RPSConfig(burn_in=40, window_len=10, top_m=8, diagnose_every=5)
     fault_cfg = {'onset': 50, 'agents': [2], 'type': 'constant',

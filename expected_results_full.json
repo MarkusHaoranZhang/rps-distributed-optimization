@@ -2,7 +2,7 @@
   "_meta": {
     "mode": "full",
     "config": "N=50 (fig2/6), T=1000 (fig2), MC=20, seed=10..267, dataset=synthetic, drift_cap=40",
-    "purpose": "完整模式 (论文 Section 4.4.5 规格) 跑出的数字快照。读者跑 `python main.py`（约 2-3 小时）后能与本快照对比方法间排序、Wilcoxon 显著性、Cohen's d 是否一致。",
+    "purpose": "Snapshot of full-mode numbers (per paper §4.4.5 specification). After running `python main.py` (~2-3 hours), readers can compare inter-method ordering, Wilcoxon significance, and Cohen's d against this snapshot.",
     "snapshot_generated_at_version": "0.4.7",
     "regenerate_command": "python main.py && python _archive_full_results.py",
     "wall_clock_total_seconds_approx": 9100
@@ -98,10 +98,10 @@
     "drift_next_best_mean_x1e3": 32.28,
     "improvement_over_next_best_pct_in_current_impl": -0.5,
     "paper_specific_number": "Table 2 RPS-Full Drift = 1.12, > 40% over next-best (UD = 2.56)",
-    "note": "论文 Table 2 的具体数字（绝对值与相对优势）在当前实现下未完全复现。详见 IMPLEMENTATION_NOTES §15 关于绝对数字差距三层原因的说明（代理 δ、随机种子、drift_cap 边界）。"
+    "note": "The specific paper Table 2 numbers (absolute values and relative advantage) are not fully reproduced under the current implementation. See IMPLEMENTATION_NOTES §15 for the three-layer explanation of the absolute-number gap (proxy δ, random seeds, drift_cap boundary)."
   },
   "paper_claims_correspondence": {
-    "comment": "代码与论文论断的对应情况。论文是 ground truth，本字段记录代码实测能否反映论文论断的方向；'partial' 表示方向对但数字未完全复现到论文具体值。",
+    "comment": "Correspondence between the code and the paper claims. The paper is the ground truth; this field records whether the code's measurements reflect the direction of each paper claim. 'partial' means the direction matches but specific numbers are not fully reproduced.",
     "section_1_main_claim_rps_beats_HT": {
       "status": "fully_corresponded",
       "evidence": "Drift d=1.87 (p<0.001), Constant d=1.56 (p<0.001), MTCD 134 vs 667 (5x faster), false-alarm 0.002 vs 0.122 (60x lower)"

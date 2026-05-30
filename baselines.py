@@ -1,12 +1,16 @@
 """
-基线方法（论文 Section 4.4.2）
-==============================
+Baseline methods (paper Section 4.4.2)
+=======================================
 
-- ``HardThresholdDetector``      : 卡方残差检验 + 硬排除（χ² 99% 置信）
-- ``uniform_discount_gamma``     : 所有邻居等权折扣
-- ``coordinate_wise_median_aggregate`` : Byzantine-resilient 坐标中位聚合
+- ``HardThresholdDetector``           : chi-squared residual test + strict
+                                        exclusion (chi^2 99% confidence)
+- ``uniform_discount_gamma``          : equal-weight discount over all
+                                        neighbors
+- ``coordinate_wise_median_aggregate`` : Byzantine-resilient coordinate-wise
+                                        median aggregation
 
-每个基线都不依赖 ground-truth ``faulty_mask`` 或真实 ``δ``。
+None of the baselines rely on the ground-truth ``faulty_mask`` or the true
+``delta``.
 """
 
 from __future__ import annotations
@@ -19,10 +23,12 @@ from scipy.stats import chi2
 # ---------------------------------------------------------------------------
 
 class HardThresholdDetector:
-    """卡方残差检测器：``r_i^T Σ^{-1} r_i ~ χ²_d`` 在无故障假设下。
+    """Chi-squared residual detector: under the fault-free hypothesis,
+    ``r_i^T Sigma^{-1} r_i ~ chi^2_d``.
 
-    在 burn-in 阶段估计 ``Σ ≈ diag(σ²)``（用残差范数平方的均值近似 ``d·σ²``）。
-    超过 ``chi2.ppf(confidence, d)`` 的智能体被认为故障。
+    During burn-in we estimate ``Sigma ~ diag(sigma^2)`` (using the mean of
+    squared residual norms to approximate ``d * sigma^2``). Agents whose
+    statistic exceeds ``chi2.ppf(confidence, d)`` are flagged as faulty.
     """
 
     def __init__(self, d: int, confidence: float = 0.99):
@@ -31,29 +37,36 @@ class HardThresholdDetector:
         self.var_est: float | None = None
 
     def calibrate(self, residual_norms_history: np.ndarray) -> None:
-        """从无故障历史估计每维方差 ``σ²``。
+        """Estimate the per-coordinate variance ``sigma^2`` from the
+        fault-free history.
 
-        采用 ``E[||r||²] = d·σ²``，把 σ² 估计为残差范数平方均值除以维度 d。
+        We use ``E[||r||^2] = d * sigma^2``, i.e. estimate ``sigma^2`` as
+        the mean of squared residual norms divided by the dimension ``d``.
 
         .. note::
-           这是把所有 N 个 agent + 所有时间步的残差范数当作同分布的池化
-           估计。在共识收敛过程中残差量级早期较大、后期较小，假设并不严格
-           成立。**这是有意为之**——HT 是论文 Section 1 critique 的对象，朴素
-           估计正好贴合论文要 critique 的"threshold-based detector ...
-           oscillates"现象。不要把这里"修得更精细"。
+           This is a pooled estimator that treats the residual norms over
+           all ``N`` agents and all time steps as samples from the same
+           distribution. During consensus convergence the residual
+           magnitude is larger early and smaller later, so the assumption
+           is not strict. **That is on purpose** -- HT is exactly the
+           method that Section 1 of the paper criticizes, and the naive
+           estimator reproduces the "threshold-based detector ...
+           oscillates" phenomenon the paper wants to expose. Do not "fix
+           this to be more refined".
 
         Parameters
         ----------
-        residual_norms_history : shape (T_burn, N)
+        residual_norms_history : shape ``(T_burn, N)``
         """
         sq = residual_norms_history ** 2
-        # E[||r||²] = d σ²  →  σ² = mean / d
+        # E[||r||^2] = d * sigma^2  =>  sigma^2 = mean / d
         self.var_est = max(float(sq.mean()) / self.d, 1e-8)
 
     def gamma_matrix(self, residual_norms: np.ndarray) -> np.ndarray:
-        """返回 ``(N, N)`` 的 γ：每行将故障邻居的列置 0，其余 1。
+        """Return the ``(N, N)`` gamma: rows zero out columns for faulty
+        neighbors and keep the rest at 1.
 
-        ``residual_norms`` 形状 ``(N,)``。
+        ``residual_norms`` has shape ``(N,)``.
         """
         N = len(residual_norms)
         if self.var_est is None:
@@ -78,7 +91,8 @@ def uniform_discount_gamma(N: int, factor: float = 0.9) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def coordinate_wise_median_aggregate(X: np.ndarray, adj: np.ndarray) -> np.ndarray:
-    """对每个智能体 i，用其邻居（含自身）的坐标中位替换其状态。"""
+    """For each agent ``i``, replace its state with the coordinate-wise
+    median of its neighbors (including itself)."""
     N = X.shape[0]
     X_new = X.copy()
     for i in range(N):

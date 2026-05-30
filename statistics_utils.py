@@ -1,6 +1,6 @@
 """
-统计工具：Wilcoxon signed-rank + Holm-Bonferroni + Cohen's d
-============================================================
+Statistical helpers: Wilcoxon signed-rank + Holm-Bonferroni + Cohen's d
+=======================================================================
 """
 
 from __future__ import annotations
@@ -10,10 +10,11 @@ from scipy.stats import wilcoxon
 
 
 def cohens_d(x, y) -> float:
-    """配对 Cohen's d（用差值的标准差）。
+    """Paired Cohen's d (using the standard deviation of the differences).
 
-    边界：差值方差为 0 时——若均值也为 0 返回 0；若均值非零，效应量是无穷，
-    返回 ``±inf`` 而不是误导性的 0。
+    Edge cases: when the difference variance is 0 -- if the mean is also 0
+    we return 0; if the mean is non-zero the effect size is infinite, so
+    we return ``+/-inf`` rather than a misleading 0.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -28,7 +29,8 @@ def cohens_d(x, y) -> float:
 
 
 def wilcoxon_pvalue(x, y) -> float:
-    """两侧 Wilcoxon signed-rank 检验。``x``, ``y`` 等长配对样本。"""
+    """Two-sided Wilcoxon signed-rank test. ``x`` and ``y`` are paired
+    samples of equal length."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     if np.allclose(x, y):
@@ -41,7 +43,8 @@ def wilcoxon_pvalue(x, y) -> float:
 
 
 def holm_bonferroni(pvalues) -> np.ndarray:
-    """Holm-Bonferroni 校正后的 p 值（保持原顺序返回）。"""
+    """Holm-Bonferroni adjusted p-values, returned in the original input
+    order."""
     p = np.asarray(pvalues, dtype=float)
     m = len(p)
     if m == 0:

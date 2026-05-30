@@ -1,4 +1,4 @@
-"""``RPSConfig`` 与 ``validate_fault_config`` 的合法性校验测试。"""
+"""Validation tests for ``RPSConfig`` and ``validate_fault_config``."""
 
 import numpy as np
 import pytest
@@ -41,13 +41,14 @@ def test_invalid_config_raises(kwargs):
 
 
 def test_burn_in_must_be_at_least_window():
-    """``burn_in < window_len`` 时滑窗在故障期前都没填满，配置无效。"""
+    """If ``burn_in < window_len`` the sliding window never fills before
+    the fault period, so the config is invalid."""
     with pytest.raises(ValueError, match="burn_in"):
         RPSConfig(burn_in=10, window_len=20)
 
 
 def test_replace_revalidates():
-    """``replace`` 后无效字段也应被 __post_init__ 捕获。"""
+    """``replace`` must also catch invalid fields via ``__post_init__``."""
     cfg = RPSConfig()
     with pytest.raises(ValueError):
         cfg.replace(h_hop=-3)
@@ -65,7 +66,8 @@ def test_fault_config_minimal_valid():
 
 
 def test_fault_config_empty_agents_no_delta_ok():
-    """Ideal 用法：agents=[], delta=None 是合法的（无故障）。"""
+    """Ideal-style usage: ``agents=[]`` with ``delta=None`` is valid (no
+    fault)."""
     validate_fault_config({
         'onset': 9999, 'agents': [], 'type': 'constant', 'delta': None,
     })
@@ -117,7 +119,7 @@ def test_fault_config_constant_with_agents_needs_delta():
 
 
 def test_fault_config_delta_dim_mismatch():
-    """传入 d 时校验 delta.shape == (d,)。"""
+    """When ``d`` is passed, ``delta.shape == (d,)`` is enforced."""
     with pytest.raises(ValueError, match="delta"):
         validate_fault_config({
             'onset': 100, 'agents': [1], 'type': 'constant',
@@ -126,7 +128,7 @@ def test_fault_config_delta_dim_mismatch():
 
 
 def test_fault_config_delta_dim_match_passes():
-    """正确维度通过。"""
+    """A correct dimension passes."""
     validate_fault_config({
         'onset': 100, 'agents': [1], 'type': 'constant',
         'delta': np.ones(10),

@@ -17,13 +17,13 @@ exclude = ["__pycache__", ".pytest_cache", "_data"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = [
-    "E501",   # 长行（部分注释/公式表达需要保留）
+    "E501",   # long lines (some comments / formula expressions are kept verbatim)
     "E741",   # ambiguous variable name (l, I, O)
-    "E702",   # 单行多语句 (; 分隔)：个别短语句保留
+    "E702",   # multiple statements on one line (";"-separated): a few short ones are kept
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F841"]   # 测试里偶尔留 unused 变量给断言读
+"tests/*" = ["F841"]   # tests occasionally leave unused variables for asserts to read
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,9 +33,10 @@ addopts = "-q"
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
-# numpy 的 generic shape 类型推断在 1.21-2.x 都不稳定；
-# 这两个类型常出现在 "Value of type _ShapeT_co? is not indexable" 报错里，
-# 与实际运行行为无关，先全局降级。
+# numpy's generic-shape type inference has been unstable across 1.21 - 2.x;
+# the two error codes below most often surface as
+# "Value of type _ShapeT_co? is not indexable", which has no bearing on
+# actual runtime behavior, so we silence them globally.
 disable_error_code = ["index"]
 exclude = ["_data", "tests"]
 warn_unused_ignores = false

@@ -4,159 +4,181 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20461461.svg)](https://doi.org/10.5281/zenodo.20461461)
 
-论文配套实现 · Python 3.10+
+Paper companion · Python 3.10+
 
-论文 *Random Permutation Set-Based Diagnosis for Reliable Large-Scale
-Distributed Optimization Under Soft Faults* 的配套实现。代码闭环实现了
-诊断 → 软折扣 γ → 鲁棒梯度跟踪的完整流程，并通过 Monte Carlo 实验复现
-论文中所有 8 张图与 2 张表。
+Companion implementation for the paper *Random Permutation Set-Based
+Diagnosis for Reliable Large-Scale Distributed Optimization Under Soft
+Faults*. The code closes the loop "diagnosis → soft discounting γ →
+robust gradient tracking" and reproduces all 8 figures and 2 tables
+from the paper via Monte Carlo experiments.
 
-## 论文论断对应情况（v0.4.7 完整模式 N=50, MC=20）
+## Paper-claim correspondence (v0.4.7 full mode, N=50, MC=20)
 
-| 论文论断 | 对应情况 |
+| Paper claim | Status |
 |---|---|
-| §1 中心论断：RPS 显著优于 detect-then-isolate (HT) | ✓ 完全对应（Drift 上 d=1.87, p<0.001）|
-| §1 HT oscillation 现象 | ✓ 完全对应（HT 收敛迭代数 928±216, RPS 173±3）|
-| §4.5.2 RPS-NoOrder 比 RPS-Full 差 | ✓ 完全对应（d=0.73, p<0.001）|
-| §4.5.2 RPS-Sym 比 RPS-Full 差 | ✓ 完全对应（Drift d=1.18, Constant d=2.01）|
-| §4.5.3 Constant 上 RPS-Full 最优 | ✓ 完全对应（3.82 < UD 4.03 < HT 4.80, 全部 p<0.001）|
-| §4.5.3 Drift 上 RPS-Full 比 next-best 优 40% 的具体数字 | △ 当前实现下方向对（RPS 显著优于 HT/Sym）但与 UD 平手；详见 [`expected_results_full.json`](./expected_results_full.json)|
-| §4.5.3 Intermittent 上 RPS-Full 显著优 | △ 方向对（RPS 优于所有 RPS 变体与 HT 在均值上）但 MC=20 噪声下统计不显著 |
-| §4.5.4 全部 5 项假设验证 | ✓ `verify_assumptions.py` 5/5 PASS |
+| §1 main claim: RPS significantly beats detect-then-isolate (HT) | ✓ fully reproduced (Drift d=1.87, p<0.001) |
+| §1 HT oscillation phenomenon | ✓ fully reproduced (HT iters-to-converge 928±216, RPS 173±3) |
+| §4.5.2 RPS-NoOrder worse than RPS-Full | ✓ fully reproduced (d=0.73, p<0.001) |
+| §4.5.2 RPS-Sym worse than RPS-Full | ✓ fully reproduced (Drift d=1.18, Constant d=2.01) |
+| §4.5.3 Constant-bias scenario, RPS-Full optimal | ✓ fully reproduced (3.82 < UD 4.03 < HT 4.80, all p<0.001) |
+| §4.5.3 Drift "RPS-Full beats next-best by 40%" specific number | △ direction matches (RPS significantly beats HT/Sym), tied with UD; see [`expected_results_full.json`](./expected_results_full.json) |
+| §4.5.3 Intermittent: RPS-Full significantly best | △ direction matches (RPS-Full has best mean among RPS variants and HT), but differences not statistically significant under MC=20 noise |
+| §4.5.4 all 5 modeling assumptions | ✓ `verify_assumptions.py` 5/5 PASS |
 
-具体数字见 [`expected_results_full.json`](./expected_results_full.json) 的 `paper_claims_correspondence` 字段。论文方法学完全实现；具体数字差距详见 [`IMPLEMENTATION_NOTES.md §15`](./IMPLEMENTATION_NOTES.md)（代理 δ + 随机种子 + drift_cap 三层来源）。
+Detailed numbers are in the `paper_claims_correspondence` field of
+[`expected_results_full.json`](./expected_results_full.json). The paper
+methodology is fully implemented; specific-number gaps are explained in
+[`IMPLEMENTATION_NOTES.md §15`](./IMPLEMENTATION_NOTES.md) (three sources:
+proxy δ, random seeds, drift_cap).
 
-## 项目结构
+## Project layout
 
 ```
 .
-├── config.py                 # 核心数据结构 (PMF, RPSConfig, FaultConfig)
-├── costs.py                  # 代价模型：LeastSquares, LogReg, QuadraticDispatch
-├── datasets.py               # MNIST 加载、IEEE 39-bus 工厂
-├── distributed_optimization.py  # 图、共识权重、梯度跟踪、故障注入、残差
-├── rps_diagnosis.py          # 能量距离、PMF、LOS/DS、JS、OPT、γ
-├── baselines.py              # Hard-Threshold (χ²)、Uniform、Byzantine
-├── statistics_utils.py       # Wilcoxon、Holm-Bonferroni、Cohen's d
-├── experiments.py            # run_optimization 主循环 + 派生指标
-├── figures.py                # 8 张图的绘制函数
-├── main.py                   # 实验主入口
-├── verify_assumptions.py     # 论文 Section 4.5.4 假设检查脚本
-├── tests/                    # pytest 单元测试
-├── pyproject.toml            # ruff & pytest & mypy 配置
-├── requirements.txt          # 钉版本范围
-└── IMPLEMENTATION_NOTES.md   # 代码相对论文的偏离及理由
+├── config.py                    # Core data structures (PMF, RPSConfig, FaultConfig)
+├── costs.py                     # Cost models: LeastSquares, LogReg, QuadraticDispatch
+├── datasets.py                  # MNIST loader, IEEE 39-bus factory
+├── distributed_optimization.py  # Graph, consensus weights, gradient tracking, fault injection, residuals
+├── rps_diagnosis.py             # Energy distance, PMF, LOS/DS, JS divergence, OPT, γ
+├── baselines.py                 # Hard-Threshold (χ²), Uniform-Discount, Byzantine-Resilient
+├── statistics_utils.py          # Wilcoxon, Holm-Bonferroni, Cohen's d
+├── experiments.py               # run_optimization main loop + derived metrics
+├── figures.py                   # Plotting functions for the 8 figures
+├── main.py                      # Experiment entry point
+├── verify_assumptions.py        # Executable check of paper Section 4.5.4 assumptions
+├── tests/                       # pytest unit tests
+├── pyproject.toml               # ruff & pytest & mypy config
+├── requirements.txt             # Pinned version ranges
+└── IMPLEMENTATION_NOTES.md      # Documented deviations from the paper formulas, with rationale
 ```
 
-## 安装
+## Installation
 
 ```
 pip install -r requirements.txt
 ```
 
-## 复现论文结果
+## Reproducing the paper results
 
-### 一键全跑（论文 8 张图，约 2-3 小时，MC=20）
+### Full run (8 figures, ~2-3 hours, MC=20)
 
 ```
 python main.py
 ```
 
-完成后当前目录会出现：
+After completion, the working directory will contain:
 
-| 文件 | 论文位置 | `--figures N` 的 N |
-|------|---------|----|
-| `fig_preliminary.pdf` | Figure 1 — 残差演化 | 1 |
-| `fig_ablation.pdf`    | Figure 2 — 消融效应量 | 6 |
-| `fig_comparative.pdf` | Figure 3 — 三场景对比收敛 | 2 |
-| `fig_diagnostic.pdf`  | Figure 4 — 诊断延迟 | 7 |
-| `fig_scaling.pdf`     | Figure 5 — 可扩展性 | 8 |
-| `fig_sensitivity.pdf` | Figure 6 — 参数敏感性 | 3 |
-| `fig_stability.pdf`   | Figure 7 — 稳定性相图 | 4 |
-| `fig_stress.pdf`      | Figure 8 — 压力测试 | 5 |
-| `results.json`        | Table 1 / Table 2 全数值 | — |
+| File | Paper location | `--figures N` value |
+|------|---------------|---|
+| `fig_preliminary.pdf` | Figure 1 — residual evolution | 1 |
+| `fig_ablation.pdf`    | Figure 2 — ablation effect sizes | 6 |
+| `fig_comparative.pdf` | Figure 3 — three-scenario convergence comparison | 2 |
+| `fig_diagnostic.pdf`  | Figure 4 — diagnostic delay | 7 |
+| `fig_scaling.pdf`     | Figure 5 — scale invariance | 8 |
+| `fig_sensitivity.pdf` | Figure 6 — parameter sensitivity | 3 |
+| `fig_stability.pdf`   | Figure 7 — stability phase diagram | 4 |
+| `fig_stress.pdf`      | Figure 8 — stress tests | 5 |
+| `results.json`        | All numbers underlying Tables 1 and 2 | — |
 
-> 注意：``--figures N`` 的 N 是**代码内部执行顺序**，不是论文 Figure 编号。
-> 内部顺序是为了让 Figure 7 (代码内 fig 7) 复用 Figure 2 (代码内 fig 2)
-> 跑出的 MTCD 数据；论文 Figure 编号按论文章节顺序。两套编号不一致是已知
-> 历史包袱，本表给出双向映射。
+> Note: the `N` in `--figures N` is the **internal execution order**, not
+> the paper figure number. The internal order exists so that internal
+> figure 7 can reuse the MTCD data computed by internal figure 2; the
+> paper figure numbers follow the section order. The two numbering
+> systems differ by historical convention, and this table provides the
+> bidirectional mapping.
 
-### 快速验证（约 8 分钟，MC=3）
+### Quick verification (~8 minutes, MC=3)
 
 ```
 python main.py --quick
 ```
 
-跑完后与 [`expected_results.json`](./expected_results.json) 对比；具体数字
-因随机种子会有 ±10% 浮动，**RPS-Full 应稳定优于 Hard-Threshold**（这是
-论文 Section 1 的中心论断，由 ``test_paper_core_claim`` 守门）。但**与
-其它 baseline 的排序在 quick mode 下不稳定**——见下文"⚠ quick mode 排序
-异常"。最直观的验证是代码 figure 7 (论文 Figure 4) 后控制台打印的诊断
-指标：
+Compare the output with [`expected_results.json`](./expected_results.json).
+Specific numbers will fluctuate by ±10% due to random seeds, but
+**RPS-Full should consistently beat Hard-Threshold** (this is the central
+claim of paper Section 1, gated by `test_paper_core_claim`). However,
+**rankings against the other baselines are not stable in quick mode** —
+see the "⚠ quick vs. full mode" warning below. The most direct evidence
+is the diagnostic metrics printed after internal figure 7 (paper Figure 4):
 
 ```
 Hard-Threshold detection=0.000, false-alarm=0.136
 RPS-Full       detection=0.525, false-alarm=0.003
 ```
 
-这是论文 Section 1 中心论断"threshold-based detector ... oscillates"的
-直接数值证明。
+This is direct numerical evidence for the paper Section 1 claim that
+"threshold-based detector ... oscillates".
 
-> **⚠ quick mode 与完整模式的差异**
+> **⚠ Quick vs. full mode**
 >
-> 在 ``--quick`` (N=30, MC=3) 下，RPS-Full 在 Drift 上的 final error
-> ≈ 39.66×10⁻³，**显著优于 Hard-Threshold/RPS-Sym/RPS-NoOrder**（论文
-> Section 1 与 Section 4.5.2 的两条核心论断都对应得上），但仍**略劣
-> 于 Uniform-Discount / Byzantine-Resilient (≈ 36.58)** 4-8%。原因：
-> N=30, MC=3 噪声较大，UD 的无差别 self-damping 在小信号下天然占便宜。
+> Under `--quick` (N=30, MC=3), RPS-Full's final error on the Drift
+> scenario is ≈ 39.66×10⁻³, which **significantly beats
+> Hard-Threshold / RPS-Sym / RPS-NoOrder** (matching the two main claims
+> from paper Section 1 and Section 4.5.2), but is still **slightly worse
+> than Uniform-Discount / Byzantine-Resilient (≈ 36.58)** by 4-8%. The
+> reason: at N=30 with only MC=3 trials, the noise is high, and UD's
+> uniform self-damping is naturally favorable for low-magnitude faults.
 >
-> 论文 4.5.3 "RPS-Full outperforms next-best by over 40%" 的完整论断
-> 需要 N=50, MC=20 完整模式（``python main.py``，约 2 小时）才能复现。
-> [`expected_results_full.json`](./expected_results_full.json) 是
-> v0.4.7 完整模式真实跑出的数字快照。
+> The full claim "RPS-Full outperforms next-best by over 40%" from
+> paper §4.5.3 requires the full mode (N=50, MC=20) to reproduce
+> (`python main.py`, ~2 hours).
+> [`expected_results_full.json`](./expected_results_full.json) is the
+> snapshot of full-mode numbers actually produced at v0.4.7.
 >
-> 详见 [IMPLEMENTATION_NOTES.md §20](./IMPLEMENTATION_NOTES.md)。
+> See [IMPLEMENTATION_NOTES.md §20](./IMPLEMENTATION_NOTES.md) for details.
 
-### 复现某个具体数字
+### Reproducing a specific number
 
-每条命令对应论文中的一组数字。``--figures N`` 中的 N 是代码内部编号，与论文
-Figure 编号的映射见上表。
+Each command corresponds to a specific set of numbers in the paper.
+The `N` in `--figures N` is the internal index; see the mapping table above.
 
-| 论文位置 | 命令 | 输出 |
+| Paper location | Command | Output |
 |----------|------|------|
-| Table 2 + 论文 Figure 3 全部 | `python main.py --figures 2` | `results.json` 的 ``fig2_finals``、Wilcoxon p_adj、Cohen's d |
-| 论文 Table 2 RPS-Full Drift 行（绝对数字差距见下文） | `python main.py --figures 2 --mc 20` | `Gradual drift` 行 |
-| 论文 Figure 6 τ 敏感性 | `python main.py --figures 3` | `fig_sensitivity.pdf` 的 "Confidence threshold" 子图 |
-| 论文 Figure 7 κ_emp / κ_theo | `python main.py --figures 4` | 控制台打印 + `fig_stability.pdf` |
-| 论文 Figure 8 压力测试 | `python main.py --figures 5` | `fig_stress.pdf` |
-| 论文 Table 1 (Drift, ablation) | `python main.py --figures 6 --mc 20` | 控制台 "Table 1: Ablation summary" |
-| 论文 Figure 4 MTCD | `python main.py --figures 2,7 --mc 20` | `fig_diagnostic.pdf` |
-| 论文 Figure 5 N=50 vs 200 | `python main.py --figures 8` | `fig_scaling.pdf` |
-| Section 4.5.4 假设验证 | `python verify_assumptions.py` | 5 项 PASS/FAIL 报告 |
+| Table 2 + paper Figure 3 (full) | `python main.py --figures 2` | `results.json` `fig2_finals`, Wilcoxon p_adj, Cohen's d |
+| Paper Table 2 RPS-Full Drift row (see absolute-number gap below) | `python main.py --figures 2 --mc 20` | "Gradual drift" row |
+| Paper Figure 6 τ sensitivity | `python main.py --figures 3` | "Confidence threshold" subplot of `fig_sensitivity.pdf` |
+| Paper Figure 7 κ_emp / κ_theo | `python main.py --figures 4` | Console output + `fig_stability.pdf` |
+| Paper Figure 8 stress tests | `python main.py --figures 5` | `fig_stress.pdf` |
+| Paper Table 1 (Drift, ablation) | `python main.py --figures 6 --mc 20` | Console "Table 1: Ablation summary" |
+| Paper Figure 4 MTCD | `python main.py --figures 2,7 --mc 20` | `fig_diagnostic.pdf` |
+| Paper Figure 5 N=50 vs 200 | `python main.py --figures 8` | `fig_scaling.pdf` |
+| Section 4.5.4 assumption verification | `python verify_assumptions.py` | 5 PASS/FAIL items |
 
-### 切换数据集
+### Switching dataset
 
-主基准是合成最小二乘。要在 MNIST 非 IID 或 IEEE 39-bus 上重跑论文 Figure 3 与 Figure 2（代码内 fig 2 与 fig 6）：
+The default benchmark is the synthetic least-squares problem. To re-run
+paper Figure 3 and Figure 2 (internal figs 2 and 6) on MNIST non-IID or
+IEEE 39-bus:
 
 ```
 python main.py --dataset mnist --figures 2,6 --quick
 python main.py --dataset ieee39 --figures 2,6 --quick
 ```
 
-## 关键实现要点
+## Key implementation points
 
-详细逐项说明见 [IMPLEMENTATION_NOTES.md](./IMPLEMENTATION_NOTES.md)。简要列举：
+See [IMPLEMENTATION_NOTES.md](./IMPLEMENTATION_NOTES.md) for the full
+itemized account. In brief:
 
-1. **梯度跟踪 (Eq.2)**：保留 ``grad_old``，正确实现 ``Y = WY + (∇f_new − ∇f_old)``
-2. **γ 双向施加**：``ā_ij = γ_ij W_ij + (1−γ_ij)·δ_ij``，X 共识与 Y 跟踪都用 ``ā``
-3. **故障幅度代理**：用残差范数滑窗的均值与标准差增量取最大值，**不读** ground-truth ``δ``
-4. **PMF 复杂度优化**：两阶段事件枚举 + z-score 替代能量距离，O(E·s·M) → O(E)
-5. **诊断节流** ``diagnose_every``：LOS 是 O(E²) 主瓶颈，每 5 步重计算
-6. **τ 校准**：burn-in 期累积 PMF 熵 → 按 ``cfg.tau_quantile`` 取分位
-7. **连续软折扣**：``γ = exp(-gain · P_OPT)``，gain=4；高熵时 gain 减半
+1. **Gradient tracking (Eq. 2)**: keep `grad_old`, correctly implement
+   `Y = WY + (∇f_new − ∇f_old)`.
+2. **γ applied bidirectionally**: `ā_ij = γ_ij W_ij + (1−γ_ij)·δ_ij`,
+   used in both X consensus and Y tracking.
+3. **Fault-magnitude proxy**: take the maximum of mean-increment and
+   std-increment of the residual norm sliding window; **does not read**
+   ground-truth `δ`.
+4. **PMF complexity reduction**: two-stage event enumeration + z-score
+   replacing energy distance, O(E·s·M) → O(E).
+5. **Diagnosis throttling** `diagnose_every`: LOS is the O(E²) bottleneck,
+   so we recompute every 5 steps.
+6. **τ calibration**: accumulate PMF entropy during burn-in, then take
+   the quantile defined by `cfg.tau_quantile`.
+7. **Continuous soft discount**: `γ = exp(-gain · P_OPT)` with gain=4;
+   gain is halved when entropy exceeds τ.
 
-## 调优旋钮
+## Configuration knobs
 
-所有调优参数集中在 ``config.RPSConfig``：
+All tuning parameters live in `config.RPSConfig`:
 
 ```python
 from config import RPSConfig
@@ -168,57 +190,67 @@ cfg = RPSConfig(
 )
 ```
 
-要做参数敏感性扫描可用 ``cfg.replace(eta=2.0)``。
+For parameter sensitivity sweeps, use `cfg.replace(eta=2.0)`.
 
-## 自检
+## Self-check
 
 ```
-pytest tests/             # 单元测试 (~30s, 包含 test_paper_core_claim 的核心论断回归)
-ruff check .              # lint
-mypy .                    # 类型检查（pyproject.toml 已配 exclude）
-python verify_assumptions.py    # 论文假设是否在当前实验配置下成立
+pytest tests/             # Unit tests (~30s, includes test_paper_core_claim regression)
+ruff check .              # Lint
+mypy .                    # Type check (exclude already configured in pyproject.toml)
+python verify_assumptions.py    # Whether paper assumptions hold under the current setup
 ```
 
-## 注意事项
+## Notes
 
-- **MC trials 默认 20**（论文 Section 4.4.5 规格）。完整模式约 2-3 小时；
-  ``--quick`` 用 MC=3 快速验证。
-- 所有故障注入与诊断不读取 ``faulty_mask`` / ground-truth ``δ``。
-  ``verify_assumptions.py`` 静态扫描诊断路径确认无 ground-truth 泄露。
-- ``drift_cap`` 默认 100 以保持论文 Section 4.4 的 small-fault regime；
-  无界 drift 会让所有方法都被 misspecification 主导。
+- **MC trials default to 20** (per paper Section 4.4.5). Full mode takes
+  about 2-3 hours; use `--quick` (MC=3) for fast verification.
+- All fault injection and diagnosis paths do not read `faulty_mask` /
+  ground-truth `δ`. `verify_assumptions.py` does a static scan of the
+  diagnosis path to confirm no ground-truth leakage.
+- `drift_cap` defaults to 100 to keep the small-fault regime described
+  in paper Section 4.4; an unbounded drift would drive all methods into
+  misspecification-dominated behavior.
 
-## 与论文 Table 1/2 的绝对数字差距
+## Absolute-number gap vs. paper Tables 1/2
 
-读者跑出来的 final relative error 会**比论文 Table 1/2 大 3-50 倍**。例如
-论文 Drift RPS-Full = 1.12 (×10⁻³)，代码 quick mode ≈ 75 (×10⁻³)，full
-mode ≈ 50 (×10⁻³)。**定性结论（RPS-Full < Hard-Threshold < ...）一致，
-绝对数字不一致**。
+Readers will see final relative errors **3-50× larger than the values
+reported in paper Tables 1/2**. For example, the paper reports Drift
+RPS-Full = 1.12 (×10⁻³), while the code yields ≈ 75 (×10⁻³) in quick
+mode and ≈ 50 (×10⁻³) in full mode. **The qualitative ranking (RPS-Full
+< Hard-Threshold < ...) is preserved; the absolute numbers are not.**
 
-原因（详见 [IMPLEMENTATION_NOTES.md](./IMPLEMENTATION_NOTES.md)）：
+Reasons (details in [IMPLEMENTATION_NOTES.md](./IMPLEMENTATION_NOTES.md)):
 
-1. **Eq.(7) 的 E[r_i\|A] 在论文里默认 δ 已知**——论文公式直接写出
-   ``Σ F_{i←j} δ_j``，但实际算法运行时 δ 未知。任何不读 ground-truth 的
-   实现都用代理 δ（``magnitude_proxy``），引入估计误差。论文数字相当于
-   "假装知道 δ" 的上界。
-2. **drift_cap=80** 让故障在 t=onset+80 后保持饱和量级，剩余几百步是
-   constant 故障，累积偏差比论文无界 drift 大。
-3. **N=50, T=1000 vs 论文 4.4.4 的精确随机种子**：论文未公开种子，
-   不同随机数下数字会有 1-2× 的天然波动。
+1. **Eq.(7) treats δ as known in the paper** — the paper formula reads
+   `Σ F_{i←j} δ_j` directly, but at runtime δ is unknown. Any
+   implementation that does not read ground-truth δ uses a proxy δ
+   (`magnitude_proxy`), introducing estimation error. The paper's
+   numbers correspond to an "as-if δ is known" upper bound.
+2. **drift_cap=80** (in figure_2 historically) keeps the fault saturated
+   from t=onset+80 onwards, leaving the remaining hundreds of steps as
+   constant fault, accumulating larger deviations than the paper's
+   unbounded-drift formulation.
+3. **N=50, T=1000 vs. paper §4.4.4 exact random seeds**: the paper does
+   not publish seeds; trial-to-trial variation can be 1-2× even with the
+   same configuration.
 
-读者应当看的是**方法间相对优劣**而非绝对数值。``results.json`` 里的
-Wilcoxon p_adj 与 Cohen's d 是评估"RPS-Full 是否显著优于基线"的正确指标。
+Readers should look at **inter-method relative ordering**, not absolute
+values. The Wilcoxon p_adj and Cohen's d in `results.json` are the
+correct metrics for evaluating "is RPS-Full significantly better than
+the baselines".
 
-## Section 4.5.4 假设验证
+## Section 4.5.4 assumption verification
 
 ```
 python verify_assumptions.py
 ```
 
-输出 5 项 PASS/FAIL：
+Outputs 5 PASS/FAIL items:
 
-- 通信图强连通（Assumption 2）
-- W 双随机非负
-- 局部 cost 的 L-smoothness、聚合强凸（Assumption 1）
-- small-fault regime（mean-shift 主导 std-change）
-- 诊断路径不泄露 ground-truth 故障信息
+- Communication graph is strongly connected (Assumption 2)
+- W is doubly stochastic and non-negative
+- Local costs satisfy L-smoothness, aggregate strong convexity
+  (Assumption 1)
+- Small-fault regime (mean-shift dominates std-change)
+- Diagnosis path does not leak ground-truth fault information

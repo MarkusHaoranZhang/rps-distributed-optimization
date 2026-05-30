@@ -1,19 +1,26 @@
 """
-实验运行器
-============
+Experiment runner
+==================
 
-完整闭环：诊断 → 软折扣 γ → 鲁棒梯度跟踪。
+End-to-end loop: diagnosis -> soft discount gamma -> robust gradient
+tracking.
 
-主入口是 ``run_optimization``，按方法名分派到下面三类内部步函数：
+The main entry point is ``run_optimization``, which dispatches to one of the
+internal step functions based on the method name:
 
-  ``_step_hard_threshold`` : 卡方残差检测 + 硬排除（论文 §1 critique 对象）
-  ``_step_uniform_discount``: 全网均匀折扣
-  ``_step_rps``            : RPS-Full / RPS-Symmetric / RPS-NoOrder
+  ``_step_hard_threshold``  : chi-squared residual detector + strict
+                              exclusion (the target of the paper's Section 1
+                              critique).
+  ``_step_uniform_discount`` : equal-weight discount applied across the
+                              network.
+  ``_step_rps``             : RPS-Full / RPS-Symmetric / RPS-NoOrder.
 
-Byzantine-Resilient 不通过 γ 矩阵，而是在 X 步进前直接对 X 做坐标中位过滤；
-Ideal 与 Byzantine 都不需要专用 step 函数。
+Byzantine-Resilient does not go through the gamma matrix; it filters X
+directly via the coordinate-wise median before the X update. Neither Ideal
+nor Byzantine needs a dedicated step function.
 
-各方法的状态（HT 检测器、RPS 缓存等）封装在 ``_RunState`` 里，主循环只做调度。
+Per-method state (HT detector, RPS caches, ...) is encapsulated inside
+``_RunState`` so the main loop only has to schedule the work.
 """
 
 from __future__ import annotations
@@ -100,14 +107,18 @@ class _RunState:
 
 def _step_hard_threshold(t: int, st: _RunState, residuals_norm: np.ndarray,
                           fault_config: dict, cfg: RPSConfig) -> Optional[np.ndarray]:
-    """卡方残差检测器：每步重新基于 ``res_norm[t]`` 计算 γ。
+    """Chi-squared residual detector: gamma is recomputed every step from
+    the current ``res_norm[t]``.
 
     .. note::
-       检测器没有时间滤波：``residual_norms`` 在共识动态下天然震荡，
-       χ² 统计量 ``r²/σ²`` 也随之震荡，导致 γ 在某些步把故障智能体
-       屏蔽、另一些步又放开。这正是论文 Section 1 描述的"oscillates
-       between inclusion and exclusion" 现象。它会让 ``Iter to 1e-3``
-       指标在 trial 间方差很大（论文的反面教材）。
+       The detector has no temporal filtering: ``residual_norms`` naturally
+       oscillate under the consensus dynamics, the chi-squared statistic
+       ``r^2 / sigma^2`` oscillates with them, and as a result gamma
+       excludes the faulty agent on some steps and lets it back in on
+       others. This is precisely the "oscillates between inclusion and
+       exclusion" behavior described in Section 1 of the paper. It also
+       inflates trial-to-trial variance of the ``Iter to 1e-3`` metric
+       (the paper's negative example).
     """
     assert st.ht_detector is not None, "_RunState.ht_detector must be initialized for HT method"
     if t == cfg.burn_in - 1:
@@ -115,19 +126,24 @@ def _step_hard_threshold(t: int, st: _RunState, residuals_norm: np.ndarray,
     if t < cfg.burn_in:
         return None
     gamma_mat = st.ht_detector.gamma_matrix(residuals_norm[t])
-    # 把 HT 的检测结果也记录到 diag_log 里，使 Figure 7 的 MTCD 在
-    # HT 与 RPS 之间可比（论文 4.4.3 的 MTCD 定义：故障 agent 被
-    # 识别为最可疑的概率 ≥ 0.95）。
+    # Also log HT's detection result into diag_log so the MTCD metric in
+    # Figure 7 is comparable between HT and RPS (paper Section 4.4.3
+    # defines MTCD as: probability that the faulty agent is identified as
+    # the most suspicious >= 0.95).
     #
-    # HT 是二值检测器，没有连续概率：γ_{i, tgt} 的列均值要么 < 0.5（被
-    # 多数邻居判为故障）要么 ≥ 0.5。我们把"列均值 < 0.5"映射为 1.0，
-    # 否则 0.0。这意味着 MTCD 阈值 0.95 在 HT 上等价于"任一时刻多数
-    # 邻居判它为故障"——只要这个事件发生过一次，MTCD 就停在那一步。
+    # HT is a binary detector with no continuous probability: the column
+    # mean of gamma_{i, tgt} is either < 0.5 (the majority of neighbors
+    # consider it faulty) or >= 0.5. We map "column mean < 0.5" to 1.0,
+    # and to 0.0 otherwise. This means the MTCD threshold of 0.95 is
+    # effectively "at any point in time, the majority of neighbors mark
+    # it as faulty" -- as soon as that event occurs even once, MTCD locks
+    # to that step.
     #
-    # 在 Drift 场景下 HT 的实测 MTCD 接近 T - onset 的最大值，意味着
-    # χ² 阈值在整个故障期都没有跌破——这恰好是论文 §1 critique 的
-    # "threshold-based detector ... oscillates / fails"现象的数值
-    # 证据，不是 RPS 框架的局限。
+    # Under drift, the empirical MTCD for HT is close to ``T - onset``
+    # (its maximum), which means the chi-squared threshold never trips
+    # during the entire fault period. This is the numerical evidence for
+    # the "threshold-based detector ... oscillates / fails" phenomenon
+    # criticized in Section 1, not a limitation of the RPS framework.
     if cfg.record_diagnosis and t >= fault_config['onset']:
         tgt = fault_config['agents'][0] if fault_config['agents'] else None
         if tgt is not None:
@@ -147,20 +163,24 @@ def _step_uniform_discount(t: int, st: _RunState, fault_config: dict,
 
 def _compute_magnitude_proxy(residuals_norm: np.ndarray, t: int, cfg: RPSConfig,
                               N: int) -> tuple:
-    """从残差范数历史构造故障幅度代理。
+    """Build a fault-magnitude proxy from the residual-norm history.
 
     .. note::
-       当 ``t < cfg.burn_in`` 时（burn-in 期），baseline 用零向量、std_base 用 1
-       作为占位。此时生成的 PMF 仅用于收集熵供 τ 校准（不参与 γ 计算），所以
-       baseline 不准确不影响最终结果。这是工程上让 burn-in 期 PMF 也能跑出来
-       的占位实现，不是论文公式。
+       When ``t < cfg.burn_in`` (burn-in phase), we use a zero vector for
+       the baseline and 1 for ``std_base`` as placeholders. The PMFs
+       generated in this phase are only used to collect entropy for tau
+       calibration (they never feed into gamma), so the inaccuracy of the
+       baseline does not affect the final result. This is an engineering
+       placeholder so that the burn-in PMF can still be computed; it is
+       not a paper formula.
 
     Returns
     -------
     (magnitude_proxy, baseline, Q0_samples)
-        magnitude_proxy : (N,) 故障幅度代理
-        baseline        : (N,) 无故障基线均值（burn-in 期为零向量占位）
-        Q0_samples      : (M,) 基线波动样本
+        magnitude_proxy : ``(N,)`` fault-magnitude proxy
+        baseline        : ``(N,)`` mean residual under the fault-free
+                          baseline (zero placeholder during burn-in)
+        Q0_samples      : ``(M,)`` baseline-fluctuation samples
     """
     win_lo = max(0, t - cfg.window_len + 1)
     window = residuals_norm[win_lo: t + 1]
@@ -185,7 +205,8 @@ def _generate_local_pmfs(st: _RunState, residuals_norm: np.ndarray, t: int,
                           F: np.ndarray, magnitude_proxy: np.ndarray,
                           Q0_samples: np.ndarray, baseline: np.ndarray,
                           cfg: RPSConfig) -> None:
-    """每个智能体根据自己作用域内的残差窗口生成本地 PMF。"""
+    """Each agent generates its local PMF from the residual window inside
+    its own scope."""
     assert st.rps_states is not None
     for i in range(st.N):
         state = st.rps_states[i]
@@ -229,20 +250,22 @@ def _record_agent_diagnosis(st: _RunState, fused: PMF, state: _AgentRPSState,
 def _step_rps(t: int, st: _RunState, residuals_norm: np.ndarray,
                method: str, fault_config: dict, adj: np.ndarray,
                cfg: RPSConfig) -> Optional[np.ndarray]:
-    """RPS-Full / RPS-Symmetric / RPS-NoOrder 共用的诊断步。
+    """Shared diagnosis step for RPS-Full / RPS-Symmetric / RPS-NoOrder.
 
-    τ 校准（论文 Section 4.3）的真实实现：
-      - 在 burn-in 期 (t = window_len .. burn_in-1) 用当前残差窗口生成 PMF
-        并收集每个智能体的熵；
-      - 在 t == burn_in - 1 时把所有智能体在 burn-in 期内的熵汇总，按
-        ``cfg.tau_quantile`` 取分位作为 τ。
-    这样 ``cfg.tau_quantile`` 真实影响 τ 取值，Figure 3 的 τ 敏感性曲线才有效。
+    Concrete implementation of tau calibration (paper Section 4.3):
+      - During burn-in (t = window_len .. burn_in - 1) we generate PMFs
+        from the current residual window and collect each agent's entropy.
+      - At ``t == burn_in - 1`` we aggregate every agent's burn-in
+        entropy and take the ``cfg.tau_quantile`` quantile as tau.
+    This makes ``cfg.tau_quantile`` actually influence tau, which is what
+    the Figure 3 tau-sensitivity curve relies on.
     """
     assert st.rps_states is not None, "_RunState.rps_states must be initialized for RPS methods"
-    # 上面的 assert 是给 mypy 的类型缩窄；进入此函数的前提是
-    # ``is_rps_method(method)``，``run_optimization`` 已经为 RPS 分支
-    # 初始化了 rps_states，所以运行时一定非空。
-    # 更新滑窗
+    # The assert above is a type-narrowing hint for mypy; the function is
+    # only entered when ``is_rps_method(method)`` holds, and
+    # ``run_optimization`` always initializes ``rps_states`` for the RPS
+    # branch, so it is guaranteed non-empty at runtime.
+    # Update sliding window.
     for i in range(st.N):
         st.rps_states[i].window.append(residuals_norm[t, i])
 
@@ -252,21 +275,24 @@ def _step_rps(t: int, st: _RunState, residuals_norm: np.ndarray,
     magnitude_proxy, baseline, Q0_samples = _compute_magnitude_proxy(
         residuals_norm, t, cfg, st.N)
 
-    # burn-in 期：在故障未到时就生成 PMF 并收集熵，用于 τ 校准
+    # Burn-in phase: generate PMFs even before the fault arrives so we
+    # can collect entropy for tau calibration.
     in_burnin = (t < fault_config['onset']) and (t < cfg.burn_in)
     if in_burnin:
         _generate_local_pmfs(st, residuals_norm, t, st.F, magnitude_proxy,
                               Q0_samples, baseline, cfg)
-        # 收集每个智能体的熵
+        # Collect entropy from every agent.
         for state in st.rps_states:
             if state.pmf is not None and not state.pmf.is_empty:
                 st.burnin_entropies.append(pmf_entropy(state.pmf))
         return None
 
-    # τ 校准（一次，发生在 burn-in 末或刚进故障期时）
+    # Tau calibration (one shot, at the end of burn-in or right when the
+    # fault period begins).
     if st.tau == float('inf'):
         if cfg.tau is not None:
-            # 显式给出 τ：直接用（适合 Figure 3 的 τ 敏感性扫描）
+            # Explicit tau: use it directly (handy for the Figure 3
+            # tau-sensitivity sweep).
             st.tau = float(cfg.tau)
         elif st.burnin_entropies:
             st.tau = float(np.quantile(np.asarray(st.burnin_entropies),
@@ -274,20 +300,22 @@ def _step_rps(t: int, st: _RunState, residuals_norm: np.ndarray,
         else:
             st.tau = math.log(cfg.top_m)
 
-    # burn-in 之后但还没到故障期（onset > burn_in 的情形）
+    # Past burn-in but the fault has not yet started (when onset >
+    # burn_in).
     if t < fault_config['onset']:
         return None
 
-    # 节流：每 cfg.diagnose_every 步触发一次诊断重计算
+    # Throttle: trigger diagnosis recomputation every cfg.diagnose_every
+    # steps.
     diag_step = ((t - fault_config['onset']) % max(1, cfg.diagnose_every) == 0)
     if (not diag_step) and st.last_gamma_mat is not None:
         return st.last_gamma_mat
 
-    # 1) 每智能体生成本地 PMF
+    # 1) Each agent generates its local PMF.
     _generate_local_pmfs(st, residuals_norm, t, st.F, magnitude_proxy,
                           Q0_samples, baseline, cfg)
 
-    # 2) 邻居 PMF 融合 + γ 计算
+    # 2) Neighbor-PMF fusion + gamma computation.
     gamma_mat = np.ones((st.N, st.N))
     for i in range(st.N):
         state = st.rps_states[i]
@@ -326,25 +354,28 @@ def run_optimization(N: int, d: int, T: int, alpha: float,
                       cost,
                       cfg: Optional[RPSConfig] = None,
                       seed: int = 0):
-    """运行一次完整闭环优化。
+    """Run one full closed-loop optimization.
 
     Parameters
     ----------
-    N, d, T, alpha : 优化主循环参数（智能体数 / 决策维度 / 步数 / 步长）
-    fault_config   : 故障配置 dict（schema 见 ``config.FaultConfig``）
-    method         : ``KNOWN_METHODS`` 之一
-    W, adj         : 共识权重矩阵和邻接矩阵
-    cost           : 实现 ``grad_fns()`` / ``global_optimum()`` /
-                    ``problem_dim()`` 的代价对象
-    cfg            : RPSConfig 实例；为 None 时取默认值
-    seed           : 随机种子
+    N, d, T, alpha : main-loop parameters (number of agents / decision
+                     dimension / step count / step size).
+    fault_config   : fault configuration dict (schema in
+                     ``config.FaultConfig``).
+    method         : one of ``KNOWN_METHODS``.
+    W, adj         : consensus weight matrix and adjacency matrix.
+    cost           : cost object that implements ``grad_fns()`` /
+                     ``global_optimum()`` / ``problem_dim()``.
+    cfg            : ``RPSConfig`` instance; defaults are used when ``None``.
+    seed           : random seed.
 
     Returns
     -------
     (errors, residuals_norm, diag_log)
-        errors          : (T,) 平均相对误差
-        residuals_norm  : (T, N) 残差范数历史
-        diag_log        : dict, 含 MTCD / γ_history / 诊断概率历史
+        errors          : ``(T,)`` mean relative error
+        residuals_norm  : ``(T, N)`` residual-norm history
+        diag_log        : dict with MTCD / gamma_history / diagnosis-probability
+                          history.
     """
     if method not in KNOWN_METHODS:
         raise ValueError(f"Unknown method '{method}'. Known: {KNOWN_METHODS}")
@@ -383,14 +414,14 @@ def run_optimization(N: int, d: int, T: int, alpha: float,
     for t in range(T):
         faulty_mask, delta = apply_fault_injection(t, fault_config, N, d, rng)
 
-        # 1) 梯度
+        # 1) Gradients.
         grad_new = compute_local_gradients(X, grad_fns, faulty_mask, delta)
 
-        # 2) 残差
+        # 2) Residuals.
         res_norm, _ = compute_residuals(grad_new, W)
         residuals_norm[t] = res_norm
 
-        # 3) γ 矩阵（按方法分派）
+        # 3) Gamma matrix (dispatched by method).
         gamma_mat: Optional[np.ndarray] = None
         if method == "Hard-Threshold":
             gamma_mat = _step_hard_threshold(t, st, residuals_norm,
@@ -401,15 +432,16 @@ def run_optimization(N: int, d: int, T: int, alpha: float,
             gamma_mat = _step_rps(t, st, residuals_norm, method,
                                    fault_config, adj, cfg)
 
-        # 4) Byzantine 例外：不走 γ，直接坐标中位过滤 X
+        # 4) Byzantine exception: skip the gamma path entirely and apply
+        #    coordinate-wise median filtering directly on X.
         if method == "Byzantine-Resilient" and t >= fault_config['onset']:
             X = coordinate_wise_median_aggregate(X, adj)
 
-        # 5) 记录 γ 历史（用于 MTCD）
+        # 5) Record gamma history (used by MTCD).
         if cfg.record_diagnosis and t >= fault_config['onset'] and gamma_mat is not None:
             st.diag_log["gamma_history"].append(gamma_mat.copy())
 
-        # 6) 一步梯度跟踪
+        # 6) One gradient-tracking step.
         X, Y = gradient_tracking_step(X, Y, grad_old, grad_new, W, alpha,
                                         gamma=gamma_mat)
         grad_old = grad_new
@@ -425,7 +457,8 @@ def run_optimization(N: int, d: int, T: int, alpha: float,
 
 def mean_time_to_correct_diagnosis(diag_log: dict, fault_onset: int,
                                      prob_threshold: float = 0.95) -> float:
-    """从故障发生到真故障 top-1 概率超过阈值所需的迭代数。"""
+    """Iterations from fault onset until the true-fault top-1 probability
+    exceeds the threshold."""
     probs = diag_log.get("true_fault_top1_prob", [])
     if not probs:
         return float('nan')
@@ -437,7 +470,7 @@ def mean_time_to_correct_diagnosis(diag_log: dict, fault_onset: int,
 
 def recovery_time(errors: np.ndarray, fault_onset: int,
                    base_factor: float = 1.10) -> float:
-    """恢复到 1.1 × 故障前误差所需迭代数。"""
+    """Iterations required to return to ``1.1 * pre-fault error``."""
     if fault_onset <= 0 or fault_onset >= len(errors):
         return float('nan')
     pre = errors[max(0, fault_onset - 50): fault_onset]
@@ -452,7 +485,8 @@ def recovery_time(errors: np.ndarray, fault_onset: int,
 
 def resilience_metric(errors_method: np.ndarray,
                        errors_ideal: np.ndarray) -> float:
-    """方法相对 ideal 的累积超出量；越小越韧性。"""
+    """Cumulative excess over the ideal curve; smaller is more
+    resilient."""
     L = min(len(errors_method), len(errors_ideal))
     return float(np.sum(np.maximum(errors_method[:L] - errors_ideal[:L], 0.0)))
 
@@ -461,30 +495,40 @@ def detection_and_false_alarm_rates(gamma_history: list,
                                       faulty_agents: list, N: int,
                                       adj: Optional[np.ndarray] = None,
                                       gamma_threshold: float = 0.5) -> tuple:
-    """评估诊断器的故障检测率与误报率（论文 Section 4.4.3）。
+    """Evaluate the diagnoser's detection rate and false-alarm rate
+    (paper Section 4.4.3).
 
-    判决粒度是"邻居均值"：对每个 j，看 j 的邻居们在该步给出的 γ_{*, j}
-    的均值，均值 < ``gamma_threshold`` 时判 "j 在该步被诊断为故障"。
+    The decision granularity is "neighbor mean": for every agent ``j``,
+    look at the mean of ``gamma_{*, j}`` reported by ``j``'s neighbors at
+    that step. When the mean is below ``gamma_threshold``, agent ``j`` is
+    judged faulty at that step.
 
     - detection rate = TP / (TP + FN)
-        TP: faulty agent j 在某步被它的邻居判为故障；
-        FN: faulty agent 没被它的邻居判为故障。
+        TP: a faulty agent ``j`` is judged faulty by its neighbors at
+            some step.
+        FN: a faulty agent is not judged faulty by its neighbors.
     - false alarm rate = FP / (FP + TN)
-        FP: healthy agent j 被某邻居错判为故障；
-        TN: healthy agent 没被任何邻居判为故障。
+        FP: a healthy agent ``j`` is mistakenly judged faulty by some
+            neighbor.
+        TN: a healthy agent is not judged faulty by any neighbor.
 
     Parameters
     ----------
-    gamma_history : list of (N, N) ``γ`` 矩阵；只取故障期之后的步。
-    faulty_agents : 真实故障 agent 全局索引列表（评估时使用，不进入诊断）。
-    N : 智能体总数
-    adj : 邻接矩阵；若给出则只对 j 的邻居行求均值，否则对除 j 外所有行求均值。
-    gamma_threshold : 邻居 γ 均值低于此值认为 "j 被判为故障"。
+    gamma_history : list of ``(N, N)`` gamma matrices; only the steps
+                    after the fault onset are taken.
+    faulty_agents : global indices of the truly faulty agents (used only
+                    for evaluation; not visible to the diagnoser).
+    N : total number of agents.
+    adj : adjacency matrix; when given, only ``j``'s neighbor rows are
+          averaged; otherwise all rows except ``j`` are averaged.
+    gamma_threshold : a neighbor-mean below this threshold flags ``j`` as
+                      faulty.
 
     Returns
     -------
-    (detection_rate, false_alarm_rate) : 两个 [0, 1] 区间内的浮点
-        如果 ``gamma_history`` 为空或 ``faulty_agents`` 为空，返回 (nan, nan)。
+    (detection_rate, false_alarm_rate) : two floats in ``[0, 1]``.
+        Returns ``(nan, nan)`` if ``gamma_history`` is empty or
+        ``faulty_agents`` is empty.
     """
     if not gamma_history or not faulty_agents:
         return float('nan'), float('nan')
@@ -498,7 +542,8 @@ def detection_and_false_alarm_rates(gamma_history: list,
                 neighbors = np.where(adj[:, j] > 0)[0]
                 if len(neighbors) == 0:
                     continue
-                # j 被认为故障 = 它的邻居们的平均 γ 低于阈值
+                # j is judged faulty iff the average gamma reported by
+                # its neighbors is below the threshold.
                 judged_faulty = float(G[neighbors, j].mean()) < gamma_threshold
             else:
                 mask = np.ones(N, dtype=bool); mask[j] = False

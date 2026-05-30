@@ -1,4 +1,4 @@
-"""PMF 数据结构与基础 PMF 操作的单元测试。"""
+"""Unit tests for the PMF data structure and basic PMF operations."""
 
 import numpy as np
 import pytest
@@ -15,7 +15,7 @@ from rps_diagnosis import (
 
 
 def _make_pmf(events, mass, scope):
-    """测试辅助：从 events + mass 构造 PMF。"""
+    """Test helper: build a PMF from ``events`` and ``mass``."""
     a2b, _ = _bit_index_map(scope)
     masks = _to_mask_array([_mask_for(A, a2b) for A in events])
     return PMF(events=tuple(events), mass=np.asarray(mass), masks=masks)
@@ -32,7 +32,7 @@ def test_empty_pmf():
 
 
 def test_pmf_is_immutable():
-    """frozen=True dataclass 应阻止字段赋值。"""
+    """``frozen=True`` should prevent field assignment."""
     import dataclasses
     p = PMF(events=((0,),), mass=np.array([1.0]),
             masks=np.array([1], dtype=np.int64))
@@ -45,7 +45,8 @@ def test_pmf_is_immutable():
 # ---------------------------------------------------------------------------
 
 def test_singleton_vector_pure_singleton():
-    """PMF 全是单点事件时，singleton 概率 = mass。"""
+    """When every event is a singleton, the singleton probability
+    equals the mass."""
     scope = [0, 1, 2]
     p = _make_pmf([(0,), (1,), (2,)], [0.5, 0.3, 0.2], scope)
     v = pmf_to_singleton_vector(p, scope)
@@ -53,11 +54,13 @@ def test_singleton_vector_pure_singleton():
 
 
 def test_singleton_vector_multi_event():
-    """事件 (0, 1) 0.4 + (2,) 0.6 → singleton 应为 [0.2, 0.2, 0.6]。"""
+    """Events ``(0, 1) -> 0.4`` and ``(2,) -> 0.6`` give the singleton
+    vector ``[0.2, 0.2, 0.6]``."""
     scope = [0, 1, 2]
     p = _make_pmf([(0, 1), (2,)], [0.4, 0.6], scope)
     v = pmf_to_singleton_vector(p, scope)
-    # (0, 1) 平分 0.4 → 各 0.2；(2,) 给 2 → 0.6
+    # ``(0, 1)`` splits 0.4 evenly -> 0.2 each; ``(2,)`` gives 0.6 to
+    # agent 2.
     np.testing.assert_allclose(v, [0.2, 0.2, 0.6], atol=1e-12)
 
 
@@ -73,14 +76,14 @@ def test_singleton_vector_sums_to_one():
 # ---------------------------------------------------------------------------
 
 def test_entropy_uniform():
-    """均匀 4 事件 PMF 的熵 = log 4。"""
+    """A 4-event uniform PMF has entropy ``log 4``."""
     scope = [0, 1, 2, 3]
     p = _make_pmf([(0,), (1,), (2,), (3,)], [0.25] * 4, scope)
     assert abs(pmf_entropy(p) - np.log(4)) < 1e-10
 
 
 def test_entropy_certain():
-    """单事件 PMF 的熵 = 0。"""
+    """A singleton-event PMF has entropy 0."""
     scope = [0, 1]
     p = _make_pmf([(0,)], [1.0], scope)
     assert pmf_entropy(p) < 1e-10
@@ -97,12 +100,13 @@ def test_entropy_nonneg():
 # ---------------------------------------------------------------------------
 
 def test_project_drops_outside_target():
-    """投影到子作用域时，落在外部的元素被剔除。"""
+    """When projecting to a sub-scope, elements outside the target are
+    dropped."""
     scope = [0, 1, 2, 3]
     p = _make_pmf([(0, 3), (1,), (2, 3)], [0.4, 0.3, 0.3], scope)
     target = [0, 1, 2]
     pp = project_pmf(p, target)
-    # (0, 3) → (0,)；(1,) 保留；(2, 3) → (2,)
+    # ``(0, 3) -> (0,)``; ``(1,)`` is kept; ``(2, 3) -> (2,)``.
     expected_events = {(0,), (1,), (2,)}
     assert set(pp.events) == expected_events
     np.testing.assert_allclose(pp.mass.sum(), 1.0, atol=1e-10)

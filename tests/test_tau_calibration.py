@@ -1,10 +1,13 @@
-"""``tau_quantile`` 必须真正影响 τ 的取值。
+"""``tau_quantile`` must actually drive the calibrated value of tau.
 
-历史 bug：``Figure 3`` 扫描 ``tau_quantile`` 但代码内部把 τ 写死为
-``log(top_m)``，导致敏感性曲线退化为噪声。本测试套断言：
+Historical bug: Figure 3 swept ``tau_quantile`` but the code internally
+hard-coded tau to ``log(top_m)``, which collapsed the sensitivity curve
+into noise. This test suite asserts:
 
-  1. 不同 ``tau_quantile`` 配置在同一份残差上得到不同的 τ；
-  2. 不同 τ 通过 ``confidence_gated_discount`` 产生不同的 γ 序列。
+  1. Different ``tau_quantile`` settings produce different tau values for
+     the same residual stream.
+  2. Different tau values produce different gamma sequences via
+     ``confidence_gated_discount``.
 """
 
 
@@ -27,10 +30,12 @@ def _setup():
 
 
 def test_tau_quantile_changes_gamma_history():
-    """两个不同 tau (显式) 应产生不同的 γ 历史。
+    """Two different (explicit) tau values must yield different gamma
+    histories.
 
-    历史 bug 防回归：``Figure 3`` 扫描 τ 但代码内部把 τ 写死为
-    ``log(top_m)``，导致敏感性曲线退化为噪声。
+    Regression guard for the historical bug: Figure 3 swept tau but the
+    code hard-coded tau to ``log(top_m)``, collapsing the sensitivity
+    curve into noise.
     """
     N, d, T, W, adj, cost, fault_cfg = _setup()
     base = RPSConfig(burn_in=80, window_len=20, top_m=8, diagnose_every=1)
@@ -47,7 +52,7 @@ def test_tau_quantile_changes_gamma_history():
         W=W, adj=adj, cost=cost, cfg=cfg_high, seed=0,
     )
 
-    # γ 历史应不完全相同
+    # Gamma histories must not match.
     g_low = log_low.get("gamma_history", [])
     g_high = log_high.get("gamma_history", [])
     assert len(g_low) > 0 and len(g_high) > 0
@@ -59,13 +64,14 @@ def test_tau_quantile_changes_gamma_history():
 
 
 def test_burnin_collects_entropies():
-    """运行 RPS 方法应在 burn-in 期累积熵以供 τ 校准。"""
+    """The RPS path should accumulate entropy values during burn-in for
+    tau calibration."""
     import experiments as exp_mod
 
     N, d, T, W, adj, cost, fault_cfg = _setup()
     cfg = RPSConfig(burn_in=80, window_len=20, top_m=8, diagnose_every=1)
 
-    # monkey-patch 暂存 _RunState 引用
+    # Monkey-patch to capture the ``_RunState`` reference.
     captured = {}
     orig_step_rps = exp_mod._step_rps
 

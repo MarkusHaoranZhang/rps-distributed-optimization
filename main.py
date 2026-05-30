@@ -1,17 +1,19 @@
 """
-主运行脚本：执行所有实验并生成论文 8 张图与 2 张表。
+Top-level driver: run all experiments and produce the paper's 8 figures
+and 2 tables.
 
-用法
-----
+Usage
+-----
 ::
 
-    python main.py                    # 完整跑全部 8 张图（MC=20，约 2-3 小时）
-    python main.py --quick            # 缩减 N/T/MC 快速验证（MC=3，约 8 分钟）
-    python main.py --figures 1,2,6    # 只跑 figure 1, 2, 6（代码内编号）
+    python main.py                    # full run, all 8 figures (MC=20, ~2-3 hours)
+    python main.py --quick            # reduced N/T/MC for a fast smoke test (MC=3, ~8 minutes)
+    python main.py --figures 1,2,6    # only figures 1, 2, 6 (numbering is internal)
     python main.py --quick --figures 6,7
 
-每张图都被封装成 ``figure_<n>(quick: bool, *args)`` 函数，可以单独跑。
-共享的实验上下文（图、代价、统计输出）通过 ``ExperimentContext`` 传递。
+Each figure is wrapped in a ``figure_<n>(quick: bool, *args)`` function and
+can be run on its own. The shared experiment context (graphs, costs,
+statistical outputs) is passed via ``ExperimentContext``.
 """
 
 from __future__ import annotations
@@ -50,13 +52,13 @@ from statistics_utils import cohens_d, holm_bonferroni, wilcoxon_pvalue
 # Default experiment parameters
 # ---------------------------------------------------------------------------
 
-D_SYN = 10           # 论文 Section 4.4.1
+D_SYN = 10           # paper Section 4.4.1
 P_SYN = 5
 
 
 @dataclass
 class _Sizes:
-    """Quick / full 模式下各 figure 的规模设置。"""
+    """Per-figure sizing for the quick / full modes."""
     fig2_N: int
     fig2_T: int
     fig2_mc: int
@@ -74,9 +76,10 @@ class _Sizes:
 
     @classmethod
     def quick(cls) -> "_Sizes":
-        # quick 模式：fig2_T=600, onset=200。``mc_run`` 会再把 burn_in 裁剪到
-        # min(cfg.burn_in, onset-10) = min(100, 190) = 100，正好让 burn-in 期
-        # 累积 80 步 (window_len=20 之后开始采样) 的熵，τ 分位估计样本足够。
+        # Quick mode: ``fig2_T=600``, ``onset=200``. ``mc_run`` then clips
+        # ``burn_in`` to ``min(cfg.burn_in, onset - 10) = min(100, 190) = 100``,
+        # which leaves 80 burn-in steps after the sliding window kicks in
+        # (window_len=20) -- enough samples for a meaningful tau quantile.
         return cls(fig2_N=30, fig2_T=600, fig2_mc=3,
                    fig3_N=20, fig3_T=400,
                    fig4_N=15, fig4_npts=36,
@@ -87,8 +90,9 @@ class _Sizes:
 
     @classmethod
     def full(cls) -> "_Sizes":
-        # 论文 Section 4.4.5 声明 20 次 Monte Carlo。完整模式按论文复现。
-        # 跑全套约 2-3 小时；要更快可用 ``--quick`` 或 ``--mc N`` 覆盖。
+        # Section 4.4.5 of the paper specifies 20 Monte Carlo trials. Full
+        # mode reproduces those settings. A complete run takes ~2-3 hours;
+        # use ``--quick`` or ``--mc N`` to override for faster runs.
         return cls(fig2_N=50, fig2_T=1000, fig2_mc=20,
                    fig3_N=30, fig3_T=500,
                    fig4_N=20, fig4_npts=64,
@@ -98,7 +102,7 @@ class _Sizes:
                    fig8_Ns=(50, 200))
 
     def with_mc(self, mc: int) -> "_Sizes":
-        """覆盖所有 MC 字段为指定值。用于 ``--mc N`` 参数。"""
+        """Override every MC field with ``mc``. Used by ``--mc N``."""
         from dataclasses import replace
         return replace(self, fig2_mc=mc, fig5_mc=mc, fig6_mc=mc, fig7_mc=mc)
 
@@ -109,7 +113,8 @@ class _Sizes:
 
 @dataclass
 class ExperimentContext:
-    """跨 figure 共享的状态：base RPS config、统计累积、JSON 输出。"""
+    """State shared across figures: base RPS config, statistical
+    accumulators, JSON output."""
     sizes: _Sizes
     base_cfg: RPSConfig
     dataset: str = "synthetic"
@@ -135,26 +140,30 @@ def mc_run(method: str, *, N: int, T: int, alpha: float, fault_cfg: dict,
             W: np.ndarray, adj: np.ndarray, cost, n_trials: int,
             seed_base: int, cfg: RPSConfig,
             return_logs: bool = False):
-    """对一个 (method, fault_cfg) 跑 ``n_trials`` 次 Monte Carlo。
+    """Run ``n_trials`` Monte Carlo trials for one ``(method, fault_cfg)``
+    pair.
 
     .. note::
-       如果 ``cfg.burn_in`` 被故障 onset 强制裁剪（裁剪发生在 onset 不够大、
-       不够留给 burn-in 时），会通过 ``warnings`` 发出一条 UserWarning。
-       这是为了让用户在配置 ``cfg.burn_in`` 时不会被静默改写。
+       If ``cfg.burn_in`` has to be clipped because the fault onset does
+       not leave enough room for it, a ``UserWarning`` is emitted via
+       ``warnings``. This way the user is never silently overridden when
+       configuring ``cfg.burn_in``.
     """
     d = cost.problem_dim()
     burn_in = cfg.burn_in
     if fault_cfg.get('onset') is not None:
-        # burn_in 必须严格小于 onset，且至少留 30 步给故障前的统计稳定
-        # （window_len=20 + 缓冲 10）。否则 τ 校准样本太少。
+        # ``burn_in`` must be strictly less than ``onset`` and leave at
+        # least 30 steps for the pre-fault statistics to stabilize
+        # (window_len=20 + 10 buffer); otherwise the tau-calibration
+        # sample is too small.
         max_burn_in = max(cfg.window_len + 10, fault_cfg['onset'] - 10)
         if burn_in > max_burn_in:
             import warnings
             warnings.warn(
                 f"mc_run: cfg.burn_in={burn_in} clipped to {max_burn_in} "
                 f"because fault onset={fault_cfg['onset']} leaves too little "
-                f"room (need ≥ window_len+10 = {cfg.window_len + 10}). "
-                f"This affects τ calibration sample size.",
+                f"room (need >= window_len+10 = {cfg.window_len + 10}). "
+                f"This affects the tau calibration sample size.",
                 stacklevel=2,
             )
             burn_in = max_burn_in
@@ -173,18 +182,23 @@ def mc_run(method: str, *, N: int, T: int, alpha: float, fault_cfg: dict,
 
 
 def _ideal_cfg(T: int) -> dict:
-    """Ideal 方法专用故障配置（onset 大于 T 等价无故障）。"""
+    """Fault-free configuration used by the Ideal method (an onset beyond
+    ``T`` is equivalent to no fault)."""
     return {'onset': T + 1, 'agents': [], 'type': 'constant', 'delta': None}
 
 
 def _make_cost_and_graph(dataset: str, N: int, seed: int):
-    """根据数据集名构造 (W, adj, cost, d)。
+    """Construct ``(W, adj, cost, d)`` for the given dataset name.
 
-    - "synthetic": 合成最小二乘 (论文 4.4.1 主基准)
-    - "mnist"    : MNIST 非 IID 多项 logistic 回归 (Section 4.4.1)
-    - "ieee39"   : IEEE 39-bus 经济调度 (Section 4.4.1)；强制 N=39
+    - ``"synthetic"``: synthetic least squares (paper Section 4.4.1, primary
+      benchmark).
+    - ``"mnist"``    : MNIST non-IID multinomial logistic regression
+      (Section 4.4.1).
+    - ``"ieee39"``   : IEEE 39-bus economic dispatch (Section 4.4.1); forces
+      ``N=39``.
     """
-    cost: Any  # 三个分支返回不同的 cost 子类，避开 mypy 单分支类型锁定
+    cost: Any  # the three branches return different cost subclasses;
+                # ``Any`` avoids mypy locking the type to one branch
     if dataset == "synthetic":
         W, adj, _ = build_graph(N, seed=seed)
         A_list, b_list = generate_least_squares_data(N, D_SYN, P_SYN, seed=seed)
@@ -198,7 +212,7 @@ def _make_cost_and_graph(dataset: str, N: int, seed: int):
     if dataset == "ieee39":
         from datasets import make_ieee39_dispatch
         cost = make_ieee39_dispatch(seed=seed)
-        # IEEE 39-bus 固定 39 个 generator
+        # IEEE 39-bus is fixed at 39 generators.
         W, adj, _ = build_graph(39, seed=seed)
         return W, adj, cost, cost.problem_dim()
     raise ValueError(f"Unknown dataset: {dataset}")
@@ -242,7 +256,8 @@ def figure_1(ctx: ExperimentContext) -> None:
 _FIG2_METHODS = ("Ideal", "Hard-Threshold", "Uniform-Discount",
                  "Byzantine-Resilient", "RPS-Symmetric", "RPS-Full")
 
-# 跨进程稳定的种子偏移（避免依赖 PYTHONHASHSEED-randomized hash）
+# Cross-process stable seed offsets (avoid relying on PYTHONHASHSEED-randomized
+# hashing).
 _SCENARIO_SEED_OFFSET = {
     "Constant bias": 100,
     "Gradual drift": 200,
@@ -256,7 +271,7 @@ def figure_2(ctx: ExperimentContext) -> None:
           f"(N={s.fig2_N}, T={s.fig2_T}, MC={s.fig2_mc}, dataset={ctx.dataset})...")
     t0 = time.time()
     W, adj, cost, d_actual = _make_cost_and_graph(ctx.dataset, s.fig2_N, seed=0)
-    N_actual = W.shape[0]   # ieee39 强制 39
+    N_actual = W.shape[0]   # ieee39 forces 39
 
     onset = s.fig2_T // 3
     ctx.fault_scenarios = {
@@ -297,7 +312,8 @@ def figure_2(ctx: ExperimentContext) -> None:
             ctx.fig2_iters[sc][m] = np.array(its)
 
             if m in ("RPS-Full", "RPS-Symmetric", "RPS-NoOrder", "Hard-Threshold"):
-                # MTCD 用论文 4.4.3 定义：true-fault top1 概率首次 ≥ 0.95 的迭代数
+                # MTCD per the paper Section 4.4.3 definition: iteration at
+                # which the true-fault top-1 probability first reaches >= 0.95.
                 mtcd_vals = []
                 det_vals: list = []
                 fa_vals: list = []
@@ -306,7 +322,7 @@ def figure_2(ctx: ExperimentContext) -> None:
                                                         prob_threshold=0.95)
                     if not np.isnan(v):
                         mtcd_vals.append(v)
-                    # 故障检测率 / 误报率（论文 4.4.3）
+                    # Detection rate / false-alarm rate (paper Section 4.4.3).
                     det, fa = detection_and_false_alarm_rates(
                         log.get("gamma_history", []),
                         fault_cfg.get('agents', []),
@@ -352,7 +368,8 @@ def figure_3(ctx: ExperimentContext) -> None:
     cost = LeastSquaresCost(A_list, b_list)
     base_fault = {'onset': s.fig3_T // 3, 'agents': [5], 'type': 'drift',
                   'delta': 0.002 * np.ones(D_SYN), 'drift_cap': 40}
-    onset_for_burnin = int(s.fig3_T // 3)  # 与 base_fault['onset'] 同值，但 mypy 能识别其为 int
+    onset_for_burnin = int(s.fig3_T // 3)  # equal to base_fault['onset'],
+                                            # but mypy can recognize this as int
 
     def run_one(**overrides) -> float:
         cfg = ctx.base_cfg.replace(burn_in=max(50, onset_for_burnin - 50))
@@ -415,28 +432,30 @@ def figure_4(ctx: ExperimentContext) -> None:
     else:
         ctx.kappa_emp = 1e-3
 
-    # 论文 Theorem 1 的理论 κ：μ·λ₂(L) / (c₁·L_OPT·L²·Δ)
-    # 用合成 LS 上可观测的量算出 κ_theo 作为对比
+    # Theoretical kappa from Theorem 1: mu * lambda_2(L) / (c_1 * L_OPT * L^2 * Delta).
+    # Compute kappa_theo from quantities observable on the synthetic LS
+    # problem so we can plot it alongside the empirical curve.
     H_global = sum(A_list[i].T @ A_list[i] / P_SYN for i in range(s.fig4_N))
     eigs_H = np.linalg.eigvalsh(H_global)
     mu_global = float(max(eigs_H.min(), 1e-6))
     L_global = float(eigs_H.max())
-    # 算法 Laplacian 的 λ₂ (Fiedler 值)
+    # Algebraic Laplacian's lambda_2 (Fiedler value).
     deg = np.diag(adj.sum(axis=1))
     Lap = deg - adj
     eigs_L = np.linalg.eigvalsh(Lap)
     eigs_L.sort()
     lambda2 = float(eigs_L[1]) if len(eigs_L) >= 2 else 1.0
     Delta = float(np.linalg.norm(np.asarray(fault_cfg['delta'])))
-    # c1 与 L_OPT 是论文常数；取保守值 c1 = 1, L_OPT = 1
+    # c1 and L_OPT are constants from the paper; we use the conservative
+    # values c1 = 1, L_OPT = 1.
     c1, L_OPT = 1.0, 1.0
     kappa_theo = (mu_global * lambda2) / (c1 * L_OPT * L_global**2 * Delta + 1e-12)
     ctx.kappa_theo = kappa_theo
 
     plot_figure4(alphas, etas_inv, conv_mask, ctx.kappa_emp,
                   kappa_theo=kappa_theo)
-    print(f"  -> fig_stability.pdf saved. κ_emp ≈ {ctx.kappa_emp:.3e}, "
-          f"κ_theo ≈ {kappa_theo:.3e} ({time.time() - t0:.1f}s)")
+    print(f"  -> fig_stability.pdf saved. kappa_emp ~ {ctx.kappa_emp:.3e}, "
+          f"kappa_theo ~ {kappa_theo:.3e} ({time.time() - t0:.1f}s)")
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +490,10 @@ def figure_5(ctx: ExperimentContext) -> None:
                   'delta': 0.002 * np.ones(D_SYN), 'drift_cap': 40}
     for loss in loss_rates:
         rng = np.random.RandomState(int(loss) + 1)
-        # 对称丢包模拟见 ``distributed_optimization.simulate_symmetric_packet_loss``
-        # 的 docstring 与 ``tests/test_figure5_packet_loss.py`` 守门测试。
+        # See ``simulate_symmetric_packet_loss`` in
+        # ``distributed_optimization.py`` for the symmetric packet-loss
+        # model, and ``tests/test_figure5_packet_loss.py`` for the
+        # guarding test.
         W_mod = simulate_symmetric_packet_loss(W, loss / 100.0, rng)
         e = mc_run("RPS-Full", N=s.fig5_N, T=400, alpha=0.05,
                     fault_cfg=drift_cfg, W=W_mod, adj=adj, cost=cost,
@@ -541,7 +562,7 @@ def figure_7(ctx: ExperimentContext) -> None:
     print(f"\n[7/8] Figure 7: Diagnostic delay (MC={s.fig7_mc})...")
     t0 = time.time()
     if "Gradual drift" not in ctx.fig2_mtcd:
-        # 没跑 figure 2 的情况下退化为单条占位
+        # If figure 2 was not run, fall back to a single placeholder bar.
         T_minus_onset = s.fig2_T - s.fig2_T // 3
         ht_mtcd = np.array([T_minus_onset])
         rps_mtcd = np.array([T_minus_onset])
@@ -557,9 +578,9 @@ def figure_7(ctx: ExperimentContext) -> None:
             rps_mtcd = np.array([T_minus_onset])
 
     plot_figure7(ht_mtcd, rps_mtcd)
-    print(f"  Hard-Threshold MTCD: {np.nanmean(ht_mtcd):.1f} ± {np.nanstd(ht_mtcd):.1f}")
-    print(f"  RPS-Full      MTCD: {np.nanmean(rps_mtcd):.1f} ± {np.nanstd(rps_mtcd):.1f}")
-    # 同时打印故障检测率 / 误报率（论文 4.4.3）
+    print(f"  Hard-Threshold MTCD: {np.nanmean(ht_mtcd):.1f} +/- {np.nanstd(ht_mtcd):.1f}")
+    print(f"  RPS-Full      MTCD: {np.nanmean(rps_mtcd):.1f} +/- {np.nanstd(rps_mtcd):.1f}")
+    # Also report detection / false-alarm rates (paper Section 4.4.3).
     if "Gradual drift" in ctx.fig2_detection:
         for m_name in ("Hard-Threshold", "RPS-Full"):
             det = ctx.fig2_detection["Gradual drift"].get(m_name, np.array([np.nan]))
@@ -603,7 +624,7 @@ def print_tables(ctx: ExperimentContext) -> None:
         print("\n=== Table 1: Ablation summary ===")
         print(f"{'Variant':<18s}{'Final err (x10^-3)':>22s}")
         for name, vals in ctx.ablation.items():
-            print(f"  {name:<16s}  {vals.mean()*1e3:>10.2f} ± {vals.std()*1e3:>5.2f}")
+            print(f"  {name:<16s}  {vals.mean()*1e3:>10.2f} +/- {vals.std()*1e3:>5.2f}")
 
     if not ctx.fig2_finals:
         return
@@ -616,8 +637,8 @@ def print_tables(ctx: ExperimentContext) -> None:
         for m in _FIG2_METHODS:
             f = ctx.fig2_finals[sc][m]
             it = ctx.fig2_iters[sc][m]
-            print(f"  {m:<22s}  {f.mean()*1e3:>10.2f} ± {f.std()*1e3:>5.2f}"
-                  f"  {it.mean():>10.0f} ± {it.std():>5.0f}")
+            print(f"  {m:<22s}  {f.mean()*1e3:>10.2f} +/- {f.std()*1e3:>5.2f}"
+                  f"  {it.mean():>10.0f} +/- {it.std():>5.0f}")
         if len(rps_vals) >= 2:
             comparisons = []
             for m in _FIG2_METHODS:
@@ -635,7 +656,7 @@ def print_tables(ctx: ExperimentContext) -> None:
 
 def save_results_json(ctx: ExperimentContext, path: str = "results.json") -> None:
     def _clean(v):
-        """把 nan / inf 转成 None 让严格 JSON parser 也能读。"""
+        """Convert NaN / Inf to None so strict JSON parsers can read it."""
         if isinstance(v, float) and not np.isfinite(v):
             return None
         if isinstance(v, list):
@@ -675,8 +696,9 @@ def save_results_json(ctx: ExperimentContext, path: str = "results.json") -> Non
         }
     if ctx.ablation:
         out["ablation"] = {k: v.tolist() for k, v in ctx.ablation.items()}
-    # 对所有数值字段做 NaN/Inf → None 转换，使 results.json 在严格 JSON parser
-    # （如 Python 默认配置外的 jq、Java Jackson）下可读
+    # Convert NaN / Inf in numeric fields to None so ``results.json`` is
+    # readable by strict JSON parsers (e.g. ``jq`` or Java's Jackson, which
+    # do not accept the Python-style ``NaN``).
     out = _clean(out)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
@@ -696,14 +718,18 @@ _FIGURE_FNS = {
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--quick", action="store_true",
-                   help="缩减 N、T、MC trials 以快速验证管线（约 8 分钟）")
+                   help="Reduce N, T, and MC trials for a fast pipeline smoke "
+                        "test (~8 minutes).")
     p.add_argument("--mc", type=int, default=None,
-                   help="覆盖默认的 MC trial 数（论文 = 20，快速验证可设 3-5）")
+                   help="Override the default MC trial count "
+                        "(paper = 20; 3-5 is fine for a quick check).")
     p.add_argument("--figures", type=str, default=None,
-                   help="逗号分隔的 figure 编号，如 '1,2,6'；省略则跑全部")
+                   help="Comma-separated figure numbers, e.g. '1,2,6'. "
+                        "Default: run all of them.")
     p.add_argument("--dataset", type=str, default="synthetic",
                    choices=["synthetic", "mnist", "ieee39"],
-                   help="主基准数据集（默认 synthetic）。论文 Section 4.4.1 三档")
+                   help="Primary benchmark dataset (default: synthetic). "
+                        "These are the three options from paper Section 4.4.1.")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -719,7 +745,7 @@ def main() -> None:
     sizes = _Sizes.quick() if args.quick else _Sizes.full()
     if args.mc is not None:
         if args.mc < 1:
-            raise ValueError(f"--mc must be ≥ 1, got {args.mc}")
+            raise ValueError(f"--mc must be >= 1, got {args.mc}")
         sizes = sizes.with_mc(args.mc)
         print(f"  [override] MC trials = {args.mc}")
     base_cfg = RPSConfig()
@@ -732,7 +758,8 @@ def main() -> None:
     else:
         chosen = list(_FIGURE_FNS.keys())
 
-    # Figure 7 依赖 fig2_mtcd；如果用户单独要 fig7 但没要 fig2，自动补上 fig2
+    # Figure 7 reuses fig2_mtcd; if the user asks only for figure 7 we
+    # auto-prepend figure 2.
     if 7 in chosen and 2 not in chosen:
         print("[note] Figure 7 depends on Figure 2 results; running Figure 2 first.")
         chosen = [2] + [c for c in chosen if c != 2]

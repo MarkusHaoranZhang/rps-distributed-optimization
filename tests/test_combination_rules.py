@@ -1,4 +1,5 @@
-"""LOS（左正交和）与 DS（对称组合）的等式验证。"""
+"""Equation-level checks for LOS (left orthogonal sum) and DS (symmetric
+combination)."""
 
 import numpy as np
 
@@ -37,7 +38,8 @@ def test_left_intersection_empty_when_disjoint():
 # ---------------------------------------------------------------------------
 
 def test_los_with_self_concentrates_top1():
-    """LOS(A, A) 把质量集中到 A 内部交集；自身组合应保持归一性。"""
+    """``LOS(A, A)`` concentrates mass on the intersections inside ``A``;
+    combining with self should preserve normalization."""
     scope = [0, 1, 2]
     p = _make_pmf([(0, 1), (2,)], [0.6, 0.4], scope)
     out = left_orthogonal_sum(p, p, scope, top_m=16)
@@ -45,7 +47,7 @@ def test_los_with_self_concentrates_top1():
 
 
 def test_los_normalization_after_conflict():
-    """LOS 输出质量必须归一化，即使有冲突。"""
+    """LOS output mass must be normalized even when there is conflict."""
     scope = [0, 1]
     a = _make_pmf([(0,), (1,)], [0.5, 0.5], scope)
     b = _make_pmf([(0,), (1,)], [0.7, 0.3], scope)
@@ -58,7 +60,7 @@ def test_los_normalization_after_conflict():
 # ---------------------------------------------------------------------------
 
 def test_los_preserves_order_of_first_argument():
-    """A=(2, 0, 1), B=(1, 0, 2) → left intersection = (2, 0, 1)。"""
+    """A = (2, 0, 1), B = (1, 0, 2) -> left intersection = (2, 0, 1)."""
     scope = [0, 1, 2]
     a = _make_pmf([(2, 0, 1)], [1.0], scope)
     b = _make_pmf([(1, 0, 2)], [1.0], scope)
@@ -67,7 +69,8 @@ def test_los_preserves_order_of_first_argument():
 
 
 def test_ds_outputs_sorted_set():
-    """DS 用集合交集，输出按升序排列，与 A 的顺序无关。"""
+    """DS uses set intersection; the output is sorted in ascending order
+    and is independent of ``A``'s order."""
     scope = [0, 1, 2]
     a = _make_pmf([(2, 0, 1)], [1.0], scope)
     b = _make_pmf([(1, 0, 2)], [1.0], scope)
@@ -76,14 +79,15 @@ def test_ds_outputs_sorted_set():
 
 
 def test_los_vs_ds_differ_when_orders_disagree():
-    """同一对输入 LOS 与 DS 的事件元组应不同（顺序敏感 vs 不敏感）。"""
+    """For the same input pair, the LOS and DS event tuples should differ
+    (order-sensitive vs. order-insensitive)."""
     scope = [0, 1, 2]
     a = _make_pmf([(2, 1)], [1.0], scope)
     b = _make_pmf([(1, 2)], [1.0], scope)
     out_los = left_orthogonal_sum(a, b, scope, top_m=16)
     out_ds = dempster_shafer_combination(a, b, scope, top_m=16)
-    assert out_los.events[0] == (2, 1)   # 保留 A 的顺序
-    assert out_ds.events[0] == (1, 2)    # 升序
+    assert out_los.events[0] == (2, 1)   # keeps A's order
+    assert out_ds.events[0] == (1, 2)    # ascending
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +95,14 @@ def test_los_vs_ds_differ_when_orders_disagree():
 # ---------------------------------------------------------------------------
 
 def test_los_falls_back_to_uniform_on_total_conflict():
-    """两个 PMF 完全互斥时 LOS 退回均匀单点 PMF。"""
+    """When two PMFs are fully exclusive, LOS falls back to a uniform
+    singleton PMF."""
     scope = [0, 1]
     a = _make_pmf([(0,)], [1.0], scope)
     b = _make_pmf([(1,)], [1.0], scope)
     out = left_orthogonal_sum(a, b, scope, top_m=16)
     np.testing.assert_allclose(out.mass.sum(), 1.0, atol=1e-10)
-    # 退回到 ((0,), (1,)) 均匀
+    # Falls back to uniform over ``((0,), (1,))``.
     assert set(out.events) == {(0,), (1,)}
 
 
@@ -116,7 +121,8 @@ def test_los_with_empty_returns_other():
 # ---------------------------------------------------------------------------
 
 def test_los_top_m_truncates_low_mass_events():
-    """让 LOS 产生很多结果事件，验证 top_m 截断且质量重新归一。"""
+    """Force LOS to produce many result events and check that ``top_m``
+    truncates them and that the mass is renormalized."""
     scope = list(range(5))
     events_a = [(i,) for i in range(5)]
     a = _make_pmf(events_a, [0.2] * 5, scope)

@@ -1,4 +1,5 @@
-"""``compute_pmf`` 与 ``confidence_gated_discount`` 的端到端单元测试。"""
+"""End-to-end unit tests for ``compute_pmf`` and
+``confidence_gated_discount``."""
 
 import numpy as np
 
@@ -14,7 +15,8 @@ from rps_diagnosis import (
 
 
 def _toy_W(N=5):
-    """简单 5 节点环：每个节点连接前后两个邻居。"""
+    """A simple 5-node ring: each node is connected to the two adjacent
+    neighbors."""
     adj = np.zeros((N, N))
     for i in range(N):
         adj[i, (i + 1) % N] = 1
@@ -39,8 +41,8 @@ def test_pmf_mass_sums_to_one():
     F = build_fault_propagation_matrix(W)
     scope = list(range(N))
     rng = np.random.RandomState(0)
-    window = np.abs(rng.randn(20))           # 残差范数 ≥ 0
-    proxy = np.array([0.0, 0.5, 0.0, 0.0, 0.0])  # agent 1 是嫌疑
+    window = np.abs(rng.randn(20))           # residual norms are non-negative
+    proxy = np.array([0.0, 0.5, 0.0, 0.0, 0.0])  # agent 1 is the suspect
     Q0 = np.abs(rng.randn(80))
     pmf = compute_pmf(self_idx=0, scope=scope, k_trunc=3,
                        residual_window=window, F=F, magnitude_proxy=proxy,
@@ -49,8 +51,9 @@ def test_pmf_mass_sums_to_one():
 
 
 def test_pmf_concentrates_on_high_proxy_agent():
-    """proxy 集中在 agent 1（agent 0 的环邻居）上时，PMF 在 (1,) 单点上
-    应有大于均匀的边缘概率。"""
+    """When the proxy is concentrated on agent 1 (a ring neighbor of
+    agent 0), the PMF's marginal probability on the singleton ``(1,)``
+    should exceed uniform."""
     N = 5
     W = _toy_W(N)
     F = build_fault_propagation_matrix(W)
@@ -58,7 +61,7 @@ def test_pmf_concentrates_on_high_proxy_agent():
     rng = np.random.RandomState(1)
     Q0 = rng.randn(80) * 0.05
     proxy = np.zeros(N)
-    target = 1                              # agent 0 的环邻居
+    target = 1                              # ring neighbor of agent 0
     proxy[target] = 1.0
     c_target = float(F[0, target] * proxy[target])
     assert c_target > 0, "test setup broken: F[0, 1] should be > 0"
@@ -67,13 +70,14 @@ def test_pmf_concentrates_on_high_proxy_agent():
                        residual_window=window, F=F, magnitude_proxy=proxy,
                        Q0_samples=Q0, eta=2.0, top_m=16)
     sing = pmf_to_singleton_vector(pmf, scope)
-    # target 的边缘概率应严格大于均匀，且与 top1 同序级
+    # target marginal probability should be strictly above uniform
     assert sing[target] > 1.0 / N + 1e-3, (
         f"target agent {target} singleton {sing[target]} not above uniform")
 
 
 def test_pmf_returns_uniform_when_proxy_all_zero():
-    """proxy 全零时事件枚举仍工作；输出有限。"""
+    """When the proxy is identically zero, event enumeration still works
+    and the output is finite."""
     N = 4
     W = _toy_W(N)
     F = build_fault_propagation_matrix(W)
@@ -94,7 +98,8 @@ def test_pmf_returns_uniform_when_proxy_all_zero():
 # ---------------------------------------------------------------------------
 
 def test_opt_pure_singleton():
-    """只有 (0,) 0.6 + (1,) 0.4 时，OPT 概率 = mass。"""
+    """When the only events are ``(0,) -> 0.6`` and ``(1,) -> 0.4``, the
+    OPT probability equals the mass."""
     from config import PMF
     from rps_diagnosis import _bit_index_map, _mask_for, _to_mask_array
     scope = [0, 1, 2]
@@ -108,7 +113,8 @@ def test_opt_pure_singleton():
 
 
 def test_opt_terminal_element_gets_zero():
-    """OPT (Eq.11)：终端元素不分配；事件 (0, 1) 的 mass 全给 agent 0。"""
+    """OPT (Eq. 11): the terminal element receives no mass; the entire
+    mass of event ``(0, 1)`` goes to agent 0."""
     from config import PMF
     from rps_diagnosis import _bit_index_map, _mask_for, _to_mask_array
     scope = [0, 1]
@@ -121,7 +127,8 @@ def test_opt_terminal_element_gets_zero():
 
 
 def test_gated_discount_high_entropy_softens():
-    """高熵时 effective gain 减半；同样 P_OPT 应有更高 γ（更少折扣）。"""
+    """High entropy halves the effective gain, so the same ``P_OPT``
+    yields a larger gamma (less discount)."""
     opt = {0: 0.5, 1: 0.0}
     tau = 1.0
     g_low_h = confidence_gated_discount(opt, entropy=0.0, tau=tau, gain=4.0)
@@ -132,28 +139,30 @@ def test_gated_discount_high_entropy_softens():
 
 
 def test_gated_discount_zero_prob_no_discount():
-    """P_OPT = 0 的智能体 γ ≈ 1（不折扣）。"""
+    """An agent with ``P_OPT = 0`` gets ``gamma ~ 1`` (no discount)."""
     opt = {0: 0.0, 1: 1.0}
     g = confidence_gated_discount(opt, entropy=0.0, tau=1.0, gain=4.0)
     assert abs(g[0] - 1.0) < 1e-10
 
 
 def test_gated_discount_high_prob_strong_discount():
-    """P_OPT ≈ 1 的智能体 γ 接近 0。"""
+    """An agent with ``P_OPT ~ 1`` gets ``gamma`` close to 0."""
     opt = {0: 1.0}
     g = confidence_gated_discount(opt, entropy=0.0, tau=1.0, gain=4.0)
     assert g[0] < 0.05
 
 
 # ---------------------------------------------------------------------------
-# Reference impl守门：_enumerate_events 完整版与 _enumerate_events_topk 在
-# top_agents == scope 时应当等价（注意 r=1 在 topk 里仍走全 scope，所以集合等同）。
+# Reference-impl guard: ``_enumerate_events`` (full) and
+# ``_enumerate_events_topk`` should be equivalent when ``top_agents == scope``
+# (note that even in topk, ``r=1`` always uses the full scope, so the event
+# sets are equal).
 # ---------------------------------------------------------------------------
 
 def test_enumerate_events_full_equals_topk_with_full_topagents():
-    """``_enumerate_events_topk`` 在 ``top_agents == scope`` 时应产生与
-    ``_enumerate_events`` 相同的事件集合（顺序可能不同，但作为集合相等）。
-    """
+    """``_enumerate_events_topk`` with ``top_agents == scope`` should
+    produce the same event set as ``_enumerate_events`` (the order may
+    differ, but the sets are equal)."""
     scope = [0, 1, 2, 3]
     k = 3
     full = set(_enumerate_events(scope, k))

@@ -1,11 +1,13 @@
 """
-论文 Section 4.5.4 "Verification of modeling assumptions" 的可执行版本
+Executable counterpart to paper Section 4.5.4
+"Verification of modeling assumptions"
 =====================================================================
 
-逐项验证论文方法论依赖的关键假设是否在代码生成的实验配置下成立。
-对每条假设打印 ``PASS / FAIL`` 和支撑数据。
+Verifies, item by item, that the key assumptions the methodology relies on
+hold for the experimental configurations produced by this code. Each
+assumption prints ``PASS / FAIL`` together with the supporting numbers.
 
-用法::
+Usage::
 
     python verify_assumptions.py
 """
@@ -37,7 +39,7 @@ def _result(name: str, ok: bool, detail: str = "") -> None:
 
 
 def check_strong_connectivity(N: int = 50, seed: int = 0) -> bool:
-    """论文 Assumption 2: 通信图强连通。"""
+    """Paper Assumption 2: the communication graph is strongly connected."""
     _, adj, _ = build_graph(N, seed=seed)
     visited = {0}
     stack = [0]
@@ -54,7 +56,7 @@ def check_strong_connectivity(N: int = 50, seed: int = 0) -> bool:
 
 
 def check_doubly_stochastic_W(N: int = 50, seed: int = 0) -> bool:
-    """Metropolis-Hastings W 行和与列和都为 1。"""
+    """Metropolis-Hastings W has both row sums and column sums equal to 1."""
     W, _, _ = build_graph(N, seed=seed)
     row_ok = np.allclose(W.sum(axis=1), 1.0, atol=1e-10)
     col_ok = np.allclose(W.sum(axis=0), 1.0, atol=1e-10)
@@ -68,10 +70,12 @@ def check_doubly_stochastic_W(N: int = 50, seed: int = 0) -> bool:
 
 def check_smoothness_and_strong_convexity(N: int = 50, d: int = 10,
                                             p: int = 5, seed: int = 0) -> bool:
-    """论文 Assumption 1: f_i 是 L-smooth 且 μ-strongly convex。
+    """Paper Assumption 1: every ``f_i`` is L-smooth and mu-strongly convex.
 
-    对合成 LS f_i(x) = (1/2p) ||A_i x - b_i||²，Hessian = A_i^T A_i / p。
-    取所有 i 的最大特征值为 L_i，最小特征值为 μ_i；要求 μ_i > 0 且 L_i 有界。
+    For the synthetic LS problem ``f_i(x) = (1 / (2p)) ||A_i x - b_i||^2``,
+    the Hessian is ``A_i^T A_i / p``. We take ``L_i`` as the largest
+    eigenvalue and ``mu_i`` as the smallest, requiring ``mu_i > 0`` and
+    ``L_i`` to be bounded.
     """
     A_list, _ = generate_least_squares_data(N, d, p, seed=seed)
     Ls, mus = [], []
@@ -83,32 +87,40 @@ def check_smoothness_and_strong_convexity(N: int = 50, d: int = 10,
     L_max = max(Ls)
     mu_min = min(mus)
     ok_smooth = np.isfinite(L_max)
-    # 强凸要求 μ > 0；p < d 时 A_i^T A_i 是低秩，可能 μ_i = 0。
-    # 论文实验合成数据不一定满足 μ_i > 0；我们汇总 ∑ A_i^T A_i 是否满秩。
+    # Strong convexity requires ``mu > 0``; when ``p < d``, ``A_i^T A_i``
+    # is rank-deficient and ``mu_i`` can be 0. The synthetic data in our
+    # experiments does not necessarily satisfy ``mu_i > 0`` per agent;
+    # we instead check whether the aggregate ``sum A_i^T A_i`` has full
+    # rank.
     H_global = sum(A.T @ A / p for A in A_list)
     mu_global = np.linalg.eigvalsh(H_global).min()
     ok_convex = mu_global > 1e-8
     _result("L-smoothness (Assumption 1, smooth)", ok_smooth,
             f"max local L = {L_max:.3f}")
     _result("Aggregate strong convexity (Assumption 1, convex)", ok_convex,
-            f"μ of ∑ A_i^T A_i / p = {mu_global:.3f} "
-            f"(individual μ_min = {mu_min:.3e}, can be 0 if p<d)")
+            f"mu of sum A_i^T A_i / p = {mu_global:.3f} "
+            f"(individual mu_min = {mu_min:.3e}, can be 0 if p < d)")
     return ok_smooth and ok_convex
 
 
 def check_small_fault_regime(N: int = 50, d: int = 10, p: int = 5,
                               seed: int = 0) -> bool:
-    """论文 4.4 small-fault regime: δ 引起的均值漂移主导，方差扰动可忽略。
+    """Paper Section 4.4 small-fault regime: the mean shift induced by
+    delta dominates, and the variance perturbation is negligible.
 
-    用 constant fault（最纯粹的 mean-shift fault，drift 在 ramp 期 std 也变化
-    会污染判据），跑 100 步无故障 + 150 步带故障，比较邻居残差的 mean shift
-    与 std change 的比例。
+    We use a constant fault (the cleanest mean-shift fault; under drift,
+    the std also changes during the ramp and contaminates the criterion).
+    Run 100 fault-free steps + 150 faulty steps and compare the mean
+    shift to the std change in the neighbors' residuals.
 
     .. note::
-       判据用 ``ratio > 0.5`` 而非严格 ``> 1.0``：在 small-fault 边界附近
-       mean shift 与 std change 同量级是预期的；要求严格主导会让边界情况
-       误报失败。``> 0.5`` 表达"mean shift 至少与 std change 同等重要"，
-       与论文定性主张 (Section 4.4) 一致。
+       The criterion is ``ratio > 0.5`` rather than the strict
+       ``ratio > 1.0``: near the small-fault boundary, mean shift and
+       std change being on the same order is expected, and a strict
+       requirement would flag boundary cases as failures. ``> 0.5``
+       expresses "the mean shift is at least as important as the std
+       change" and matches the qualitative claim in Section 4.4 of the
+       paper.
     """
     rng = np.random.RandomState(seed)
     W, adj, _ = build_graph(N, seed=seed)
@@ -125,14 +137,14 @@ def check_small_fault_regime(N: int = 50, d: int = 10, p: int = 5,
         grad = compute_local_gradients(X, grad_fns, mask, delta)
         rn, _ = compute_residuals(grad, W)
         res_norms_list.append(rn.copy())
-        # 简单 GD（不要 GT，仅看残差量级）
+        # Plain GD (no GT here; we only look at the residual magnitude).
         X = X - 0.05 * grad
     res_norms = np.array(res_norms_list)
     pre = res_norms[:100].mean(axis=0)
     post = res_norms[100:].mean(axis=0)
     pre_std = res_norms[:100].std(axis=0)
     post_std = res_norms[100:].std(axis=0)
-    # 故障 agent 邻居的 mean-shift 与 std-change 比值
+    # Ratio of mean shift to std change for the faulty agent's neighbors.
     nb = list(np.where(adj[3] > 0)[0])
     if not nb:
         _result("Small-fault regime: mean-shift dominates", False,
@@ -143,19 +155,23 @@ def check_small_fault_regime(N: int = 50, d: int = 10, p: int = 5,
     ratios = np.abs(mean_shifts) / np.maximum(std_changes, 1e-10)
     ok = float(np.median(ratios)) > 0.5
     _result("Small-fault regime: mean-shift comparable to or dominates std-change", ok,
-            f"median |Δmean|/|Δstd| over neighbors = {np.median(ratios):.2f}")
+            f"median |dmean|/|dstd| over neighbors = {np.median(ratios):.2f}")
     return ok
 
 
 def check_no_ground_truth_leak() -> bool:
-    """诊断模块不应读取 fault_config 中的真实 δ。
+    """The diagnosis module must not read the true ``delta`` from
+    ``fault_config``.
 
     .. note::
-       这是一个 **grep 级别的快速扫描**，只能抓行内同时出现关键字的明显泄露
-       （``faulty_mask`` 或 ``fault_config['delta']`` 与 ``compute_pmf`` /
-       ``magnitude_proxy`` / ``directional_fusion`` / ``_step_rps`` 同行）。
-       跨行/间接泄露（先把 δ 拷到中间变量再传入）此扫描抓不到。最终的
-       process integrity 保证依赖人工 code review 与 IMPL §3 / §15。
+       This is a **grep-level quick scan** that only catches obvious
+       leaks where the keywords co-occur on the same line (``faulty_mask``
+       or ``fault_config['delta']`` together with ``compute_pmf`` /
+       ``magnitude_proxy`` / ``directional_fusion`` / ``_step_rps``).
+       Cross-line or indirect leaks (e.g. copying ``delta`` to an
+       intermediate variable first and then passing it in) are not
+       caught. The final process-integrity guarantee relies on manual
+       code review and IMPL Sec. 3 / Sec. 15.
     """
     import inspect
 
@@ -163,13 +179,15 @@ def check_no_ground_truth_leak() -> bool:
     import rps_diagnosis
     src = (inspect.getsource(experiments)
            + inspect.getsource(rps_diagnosis))
-    # 简单 grep："faulty_mask" 或 "delta[" 在 RPS 路径里出现说明读了 ground truth
+    # Simple grep: ``faulty_mask`` or ``delta[`` appearing on the RPS
+    # path indicates that ground truth is being read.
     leak_markers = []
     for line in src.splitlines():
         s = line.strip()
         if s.startswith("#"):
             continue
-        # 故障注入和梯度计算 OK；诊断模块里不应出现
+        # Fault injection and gradient computation are OK; diagnosis must
+        # not contain these references.
         if ("faulty_mask" in s or "fault_config['delta']" in s) and \
            ("compute_pmf" in s or "magnitude_proxy" in s
             or "directional_fusion" in s or "_step_rps" in s):

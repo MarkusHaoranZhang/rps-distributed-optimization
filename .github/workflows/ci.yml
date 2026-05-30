@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"   # 论文配套：固定一个版本即可
+          python-version: "3.11"   # paper companion: pin a single version
 
       - name: Install dependencies
         run: |
@@ -28,8 +28,9 @@ jobs:
         run: ruff check .
 
       - name: Type check with mypy
-        # `pyproject.toml` 里 `[tool.mypy]` 设置了 exclude，等价于显式列举所有
-        # 模块；新加模块时不用更新 CI。
+        # The `exclude` in `[tool.mypy]` (see `pyproject.toml`) is equivalent
+        # to enumerating every module explicitly, so newly added modules do
+        # not require updating CI.
         run: mypy .
 
       - name: Run pytest

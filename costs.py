@@ -1,16 +1,18 @@
 """
-分布式优化代价模型
-====================
+Distributed optimization cost models
+=====================================
 
-本模块提供论文 Section 4.4.1 三档基准的代价类。每个类都暴露统一接口：
+This module provides the cost classes for the three benchmarks in Section
+4.4.1 of the paper. Each class exposes a uniform interface:
 
-  ``problem_dim() -> int``                              决策变量维度
-  ``grad_fns() -> list[Callable[[ndarray], ndarray]]``  每个智能体的局部梯度
-  ``global_optimum() -> ndarray``                       集中式 x*
+  ``problem_dim() -> int``                              decision-variable dimension
+  ``grad_fns() -> list[Callable[[ndarray], ndarray]]``  per-agent local gradients
+  ``global_optimum() -> ndarray``                       centralized x*
 
-- ``LeastSquaresCost``     : 合成最小二乘 (主基准)
-- ``LogRegCost``           : MNIST 非 IID 多项 logistic（数据加载在 datasets.py）
-- ``QuadraticDispatchCost``: IEEE 39-bus 经济调度
+- ``LeastSquaresCost``     : synthetic least squares (primary benchmark)
+- ``LogRegCost``           : MNIST non-IID multinomial logistic
+                             (data loading lives in datasets.py)
+- ``QuadraticDispatchCost``: IEEE 39-bus economic dispatch
 """
 
 from __future__ import annotations
@@ -24,10 +26,12 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 class LeastSquaresCost:
-    """``f_i(x) = (1 / (2 p_i)) || A_i x - b_i ||^2``。
+    """``f_i(x) = (1 / (2 p_i)) || A_i x - b_i ||^2``.
 
-    除以 p_i 是论文 Section 4.4.1 的标准归一化，保证局部 Hessian 谱不随
-    样本量漂移；从而固定 alpha 在不同 (N, d, p) 下保持稳定。
+    Dividing by ``p_i`` is the standard normalization in Section 4.4.1 of the
+    paper; it keeps the spectrum of the local Hessian from drifting with the
+    sample size, so a fixed ``alpha`` stays stable across different
+    ``(N, d, p)``.
     """
 
     def __init__(self, A_list: List[np.ndarray], b_list: List[np.ndarray]):
@@ -64,7 +68,8 @@ class LeastSquaresCost:
 
 
 def generate_least_squares_data(N: int, d: int, p: int, seed: int = 0):
-    """生成 N 个智能体的本地 (A_i, b_i)，每个 A_i ∈ R^{p × d}。"""
+    """Generate per-agent local ``(A_i, b_i)`` for ``N`` agents with each
+    ``A_i`` of shape ``(p, d)``."""
     rng = np.random.RandomState(seed)
     A_list = [rng.randn(p, d) for _ in range(N)]
     b_list = [rng.randn(p) for _ in range(N)]
@@ -76,9 +81,10 @@ def generate_least_squares_data(N: int, d: int, p: int, seed: int = 0):
 # ---------------------------------------------------------------------------
 
 class LogRegCost:
-    """L2-regularized multinomial logistic regression。
+    """L2-regularized multinomial logistic regression.
 
-    决策变量展平为 ``(d_feat * n_class,)`` 向量。
+    The decision variable is flattened to a vector of shape
+    ``(d_feat * n_class,)``.
     """
 
     def __init__(self, X_list, y_list, n_class: int, reg: float = 1e-3):
@@ -113,11 +119,13 @@ class LogRegCost:
         return [(lambda w, i=i: self._local_grad(w, i)) for i in range(self.N)]
 
     def global_optimum(self, max_iter: int = 2000, lr: float = 0.5) -> np.ndarray:
-        """集中式 GD 求解 x*（已收敛时缓存）。
+        """Solve x* by centralized GD (cached once converged).
 
-        如果 ``max_iter`` 步后梯度范数仍 > 1e-4：
-          1. 发 ``UserWarning`` 让读者知道相对误差的分母可能不准；
-          2. **不缓存**未收敛的 w，下次调用（可传更大 ``max_iter``）会重算。
+        If the gradient norm is still > 1e-4 after ``max_iter`` steps:
+          1. emit a ``UserWarning`` so readers know the relative-error
+             denominator may be inaccurate;
+          2. **do not cache** the un-converged ``w`` so the next call (which
+             can pass a larger ``max_iter``) recomputes from scratch.
         """
         if self._x_opt is not None:
             return self._x_opt
@@ -151,7 +159,7 @@ class LogRegCost:
                 f"NOT caching this result so the next call may retry.",
                 stacklevel=2,
             )
-            return w   # 返回但不缓存，让下次调用重算
+            return w   # return but do not cache, so the next call retries
 
         self._x_opt = w
         return w
@@ -162,15 +170,19 @@ class LogRegCost:
 # ---------------------------------------------------------------------------
 
 class QuadraticDispatchCost:
-    """``f_i(p) = 0.5 a_i p_i^2 + b_i p_i + c_i``。
+    """``f_i(p) = 0.5 a_i p_i^2 + b_i p_i + c_i``.
 
-    决策变量 p ∈ R^N，每个智能体 i 只依赖第 i 维 p_i，但分布式优化要所有
-    智能体在 p 上达成一致。论文里以此作为分布式经济调度的简化模型。
+    The decision variable is ``p ∈ R^N``; agent ``i`` only depends on the
+    ``i``-th coordinate ``p_i``, but the distributed optimization requires
+    every agent to reach consensus on ``p``. The paper uses this as a
+    simplified model of distributed economic dispatch.
 
     .. note::
-       常数项 ``c_i`` **不影响梯度也不影响最优解**（``∂f/∂p_i`` 与 c
-       无关）。它仅在评估目标值 ``f(p)`` 时使用。本类目前不暴露
-       ``f(p)`` 接口，所以 ``c`` 字段实际只是占位以匹配论文记号。
+       The constant term ``c_i`` **affects neither the gradient nor the
+       optimum** (``∂f/∂p_i`` is independent of ``c``). It is only used when
+       evaluating the objective value ``f(p)``. This class does not currently
+       expose an ``f(p)`` interface, so the ``c`` field is just a placeholder
+       to match the paper's notation.
     """
 
     def __init__(self, a, b, c):
@@ -197,5 +209,5 @@ class QuadraticDispatchCost:
         return g
 
     def global_optimum(self) -> np.ndarray:
-        # ∇sum f = a_i p_i + b_i = 0 → p_i = -b_i / a_i
+        # ∇sum f = a_i p_i + b_i = 0  =>  p_i = -b_i / a_i
         return -self.b / self.a

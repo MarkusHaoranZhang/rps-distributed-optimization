@@ -1,20 +1,22 @@
 ﻿"""
-RPS 诊断模块（向量化高性能版）
-================================
+RPS diagnosis module (vectorized high-performance implementation)
+==================================================================
 
-实现论文 Section 4.1-4.3 的算法：
+Implements the algorithms in Sections 4.1-4.3 of the paper:
 
-- 能量距离 D(R, Q0)
-- 期望残差幅度 (Eq. 7)，故障幅度由残差范数代理（不读真 δ）
-- 支持度得分 (Eq. 8) —— 工程上用 z-score 替代能量距离（见
-  ``IMPLEMENTATION_NOTES.md``）
-- 截断 PMF / softmax (Eq. 9)
-- 左交集 / 左正交和 LOS (Eq. 10) —— 位掩码加速
-- 邻居可靠性：JS 散度
-- 有序概率变换 OPT (Eq. 11)
-- 置信门控软折扣 (Eq. 12) —— 论文公式的连续化
+- Energy distance D(R, Q0)
+- Expected residual magnitude (Eq. 7); fault magnitude is proxied by the
+  residual norm (we never read the true delta).
+- Support score (Eq. 8) -- engineered as a z-score in the production path
+  (see ``IMPLEMENTATION_NOTES.md``).
+- Truncated PMF / softmax (Eq. 9).
+- Left intersection / left orthogonal sum LOS (Eq. 10) -- bitmask-accelerated.
+- Neighbor reliability via JS divergence.
+- Ordered probability transformation OPT (Eq. 11).
+- Confidence-gated soft discount (Eq. 12) -- a continuous relaxation of the
+  paper's piecewise rule.
 
-PMF 数据结构详见 ``config.PMF``。
+The PMF data structure lives in ``config.PMF``.
 """
 
 from __future__ import annotations
@@ -32,9 +34,9 @@ from config import PMF
 # ---------------------------------------------------------------------------
 
 def energy_distance(X: np.ndarray, Y: np.ndarray) -> float:
-    """两个样本集之间的能量距离 (Cramér-style)。
+    """Energy distance (Cramer-style) between two sample sets.
 
-    ``D(X, Y) = 2 E|X-Y| - E|X-X'| - E|Y-Y'|``。
+    ``D(X, Y) = 2 E|X-Y| - E|X-X'| - E|Y-Y'|``.
     """
     X = np.atleast_2d(np.asarray(X, dtype=float))
     Y = np.atleast_2d(np.asarray(Y, dtype=float))
@@ -54,7 +56,8 @@ def energy_distance(X: np.ndarray, Y: np.ndarray) -> float:
 
 
 def estimate_nominal_distribution(residual_norms_history: np.ndarray) -> np.ndarray:
-    """从无故障 burn-in 期残差范数历史构造 Q0 样本（一维展开）。"""
+    """Build Q0 samples (flattened to 1-D) from the residual-norm history of
+    the fault-free burn-in phase."""
     return np.asarray(residual_norms_history, dtype=float).ravel()
 
 
@@ -63,7 +66,8 @@ def estimate_nominal_distribution(residual_norms_history: np.ndarray) -> np.ndar
 # ---------------------------------------------------------------------------
 
 def build_fault_propagation_matrix(W: np.ndarray) -> np.ndarray:
-    """残差对偏差的线性灵敏度：``r = (I - W) δ``，故 ``F = |I - W|``。"""
+    """Linear sensitivity of residuals to offsets: ``r = (I - W) delta``,
+    so ``F = |I - W|``."""
     return np.abs(np.eye(W.shape[0]) - W)  # type: ignore[index]
 
 
@@ -72,11 +76,13 @@ def build_fault_propagation_matrix(W: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def _to_mask_array(masks_list: Sequence[int]) -> np.ndarray:
-    """位掩码 ≤ 63 位时用 int64，否则用 object（容纳 Python 大整数）。"""
+    """Use ``int64`` for bitmasks of <= 63 bits; fall back to ``object``
+    (which holds Python big ints) otherwise."""
     try:
         return np.array(list(masks_list), dtype=np.int64)
     except OverflowError:
-        # Python 整数超出 int64 范围（例如 N>63 时位掩码可能 ≥ 2^63）
+        # Python int exceeds int64 range (e.g. when N > 63 the bitmask may
+        # be >= 2^63).
         return np.array(list(masks_list), dtype=object)
 
 
@@ -98,14 +104,17 @@ def _mask_for(perm: Iterable[int], agent_to_bit: dict) -> int:
 # ---------------------------------------------------------------------------
 
 def _enumerate_events(scope: Sequence[int], k_trunc: int) -> List[tuple]:
-    """完整截断排列事件空间：r = 1..k 的所有排列。
+    """Full truncated permutation event space: every permutation for
+    ``r = 1..k``.
 
     .. note::
-       这是论文 Eq.(9) 的**参考实现**（PES_k(Θ_i) 完整枚举）。生产路径
-       ``compute_pmf`` 走 ``_enumerate_events_topk`` 做先验稀疏化，对照公式
-       逐字理解时使用此函数。当 ``top_agents == scope`` 时
-       ``_enumerate_events_topk`` 退化为本函数（由
-       ``test_enumerate_events_full_equals_topk_with_full_topagents`` 守门）。
+       This is the **reference implementation** of Eq. (9)'s
+       ``PES_k(Theta_i)`` (full enumeration). The production path,
+       ``compute_pmf``, uses ``_enumerate_events_topk`` for prior-driven
+       sparsification. Use this function when you want a literal
+       comparison with the equation. When ``top_agents == scope``,
+       ``_enumerate_events_topk`` reduces to this function (guarded by
+       ``test_enumerate_events_full_equals_topk_with_full_topagents``).
     """
     events: List[tuple] = []
     for r in range(1, min(k_trunc, len(scope)) + 1):
@@ -116,11 +125,13 @@ def _enumerate_events(scope: Sequence[int], k_trunc: int) -> List[tuple]:
 
 def _enumerate_events_topk(scope: Sequence[int], k_trunc: int,
                             top_agents: Sequence[int]) -> List[tuple]:
-    """两阶段枚举：r=1 用全 scope；r ≥ 2 只在 ``top_agents`` 里排列。
+    """Two-stage enumeration: full ``scope`` for ``r=1``, but for ``r >= 2``
+    only permutations within ``top_agents``.
 
-    这是 PMF 的「先验稀疏化」：贝叶斯诊断的质量集中在概率最高的少数智能体上，
-    将 r ≥ 2 的排列空间限制到 ``top_agents`` 后，事件总数从
-    O(|Θ|^k) 降到 O(|Θ| + |T|^k)。
+    This is the PMF's "prior-driven sparsification": Bayesian diagnosis
+    concentrates mass on the few agents with the highest probability, so
+    restricting the ``r >= 2`` permutation space to ``top_agents`` shrinks
+    the event count from ``O(|Theta|^k)`` to ``O(|Theta| + |T|^k)``.
     """
     events: List[tuple] = [(a,) for a in scope]
     base = list(top_agents)
@@ -132,29 +143,34 @@ def _enumerate_events_topk(scope: Sequence[int], k_trunc: int,
 
 def expected_residual_at(self_idx: int, assumed_faulty_agents: Sequence[int],
                           F: np.ndarray, magnitude_proxy: np.ndarray) -> float:
-    """E[r_i | A] 标量值 (Eq. 7)。
+    """Scalar ``E[r_i | A]`` (Eq. 7).
 
     .. note::
-       这是论文 Eq.(7) 的**参考实现**，对照公式时使用。``compute_pmf``
-       的高性能路径用向量化的 ``H @ contrib_in_scope`` 计算所有事件的
-       期望残差，不调用此函数。
+       This is the **reference implementation** of Eq. (7); use it when
+       comparing with the equation. The high-performance path inside
+       ``compute_pmf`` computes the expected residual for every event in
+       one shot via the vectorized ``H @ contrib_in_scope``, and does not
+       call this function.
 
-       参数 ``assumed_faulty_agents`` 是**假设的**故障 agent 索引列表（即
-       排列事件 A 的元素），不是 ground-truth 故障配置——切勿与
-       ``apply_fault_injection(fault_config, ...)`` 里的 ``fault_config: dict``
-       混淆。
+       The argument ``assumed_faulty_agents`` is the list of **assumed**
+       faulty-agent indices (the elements of permutation event ``A``); it
+       is *not* the ground-truth fault configuration. Do not confuse it
+       with the ``fault_config: dict`` consumed by
+       ``apply_fault_injection(fault_config, ...)``.
     """
     return float(sum(F[self_idx, j] * magnitude_proxy[j] for j in assumed_faulty_agents))
 
 
 def compute_support_score(window: np.ndarray, expected_value: float,
                            Q0_samples: np.ndarray) -> float:
-    """支持度 (Eq. 8): ``s_A = -log D(R - E[r|A], Q_0)``。
+    """Support (Eq. 8): ``s_A = -log D(R - E[r|A], Q_0)``.
 
     .. note::
-       这是论文 Eq.(8) 的**参考实现**，对照公式时使用。``compute_pmf``
-       的高性能路径用 z-score 近似（见 IMPL §2），不调用此函数。
-       保留是为了让读者能把代码与公式逐字对照。
+       This is the **reference implementation** of Eq. (8); use it when
+       comparing with the equation. The high-performance path in
+       ``compute_pmf`` uses a z-score approximation (see IMPL Sec. 2) and
+       does not call this function. We keep this helper around so the
+       reader can match code to formula line-by-line.
     """
     diff = np.asarray(window, dtype=float).ravel() - float(expected_value)
     if diff.size == 0:
@@ -170,31 +186,38 @@ def compute_pmf(self_idx: int, scope: Sequence[int], k_trunc: int,
                  top_m: int = 16,
                  top_agents_k: int = 5,
                  proxy_global_weight: float = 0.5) -> PMF:
-    """构造截断 PMF (Eq. 9)。
+    """Construct a truncated PMF (Eq. 9).
 
-    在 small-fault regime 下，残差分布的均值漂移主导（论文假设）。支持度用
-    z-score 计算 ``s_A = -|mean(R) - c_A| / sigma_0``：与能量距离在大样本下
-    等价，但单步开销 O(E) 而非 O(E·s·M)。
+    In the small-fault regime, mean-shift dominates the residual
+    distribution (paper's assumption). The support score is therefore
+    computed as a z-score, ``s_A = -|mean(R) - c_A| / sigma_0``. This is
+    asymptotically equivalent to the energy-distance form, but with O(E)
+    per-step cost instead of O(E * s * M).
 
     Parameters
     ----------
-    self_idx : 本智能体全局索引
-    scope    : 本智能体可诊断作用域（h-hop 邻域）
-    k_trunc  : 截断阶数 k
-    residual_window : 本智能体残差范数滑窗 (s,)
-    F        : 故障传播矩阵 (N, N)
-    magnitude_proxy : 故障幅度代理 (N,)
-    Q0_samples : 名义分布样本（一维），仅用于估计 σ_0；不再做子采样。
-    eta      : softmax 温度
-    top_m    : PMF 保留的 top 事件数
-    top_agents_k : 两阶段枚举里候选 agent 数
-    proxy_global_weight : ``contrib + w · proxy_in_scope`` 的混合系数
+    self_idx : global index of this agent
+    scope    : this agent's diagnosable scope (h-hop neighborhood)
+    k_trunc  : truncation order ``k``
+    residual_window : sliding window of residual norms for this agent ``(s,)``
+    F        : fault-propagation matrix ``(N, N)``
+    magnitude_proxy : per-agent fault-magnitude proxy ``(N,)``
+    Q0_samples : nominal-distribution samples (1-D); only used to estimate
+                 ``sigma_0``. No sub-sampling is performed.
+    eta      : softmax temperature
+    top_m    : number of top events kept by the PMF
+    top_agents_k : number of candidate agents kept by the two-stage
+                   enumeration
+    proxy_global_weight : mixing coefficient
+                          ``contrib + w * proxy_in_scope``
 
     Notes
     -----
-    H 矩阵构造里有一个 O(E·|A|) 的 Python 双层循环。``top_m=16`` 与
-    ``k_trunc=3`` 让总赋值次数约 50，配合 ``diagnose_every=5`` 节流，实测
-    不是热点；保留可读写法，没有向量化。
+    Building the H matrix involves an O(E * |A|) double Python loop. With
+    ``top_m=16`` and ``k_trunc=3`` the total assignment count is around 50,
+    and combined with the ``diagnose_every=5`` throttle it does not show
+    up as a hot spot in profiling, so we keep the readable form rather
+    than vectorizing it.
     """
     a2b, _ = _bit_index_map(scope)
 
@@ -203,8 +226,9 @@ def compute_pmf(self_idx: int, scope: Sequence[int], k_trunc: int,
     scope_arr = np.asarray(scope, dtype=int)
     contrib_in_scope = contrib[scope_arr]
 
-    # 全局 proxy 也加进每智能体局部信号：故障 agent 自身残差增量
-    # 反映 (1-W_jj)·||δ_j||，不通过 F[i, :] 滤波也是有用信号。
+    # Inject the global proxy into the per-agent local signal as well: a
+    # faulty agent's own residual increment reflects (1 - W_jj) * ||delta_j||
+    # without going through F[i, :], which is a useful complementary signal.
     proxy_in_scope = magnitude_proxy[scope_arr]
     combined_signal = contrib_in_scope + proxy_global_weight * proxy_in_scope
 
@@ -220,7 +244,8 @@ def compute_pmf(self_idx: int, scope: Sequence[int], k_trunc: int,
     if not events:
         return PMF.empty()
 
-    # 每事件的 c_A：用稀疏指示矩阵 H 一次性算
+    # Per-event c_A: compute everything at once via the sparse indicator
+    # matrix H.
     n_scope = len(scope)
     a2b_arr = np.full(F.shape[0], -1, dtype=np.int64)
     for kk, a in enumerate(scope):
@@ -267,9 +292,10 @@ def compute_pmf(self_idx: int, scope: Sequence[int], k_trunc: int,
 # ---------------------------------------------------------------------------
 
 def pmf_to_singleton_vector(pmf: PMF, scope: Sequence[int]) -> np.ndarray:
-    """边缘化 PMF 到各 singleton 概率向量。
+    """Marginalize a PMF to a singleton-probability vector.
 
-    一个事件 ``A = (a_1, ..., a_r)`` 把它的质量等分给所有成员，再归一。
+    An event ``A = (a_1, ..., a_r)`` distributes its mass equally among
+    its members; the resulting vector is then normalized.
     """
     if pmf.is_empty:
         return np.zeros(len(scope))
@@ -291,13 +317,15 @@ def pmf_to_singleton_vector(pmf: PMF, scope: Sequence[int]) -> np.ndarray:
 def js_divergence(pmf1: PMF, pmf2: PMF, scope: Sequence[int], *,
                    sing1: Optional[np.ndarray] = None,
                    sing2: Optional[np.ndarray] = None) -> float:
-    """两个 PMF 的 Jensen-Shannon 散度（边缘 singleton 向量上的）。"""
+    """Jensen-Shannon divergence between two PMFs (over their marginal
+    singleton vectors)."""
     p = sing1 if sing1 is not None else pmf_to_singleton_vector(pmf1, scope)
     q = sing2 if sing2 is not None else pmf_to_singleton_vector(pmf2, scope)
     p = np.clip(p, 1e-12, 1.0)
     q = np.clip(q, 1e-12, 1.0)
-    # Defensive normalization：sing1/sing2 由调用方传入时不一定归一化
-    # （例如 _order_by_js 缓存的中间结果）；clip 之后也可能不再 sum 到 1。
+    # Defensive normalization: the caller-supplied sing1 / sing2 are not
+    # guaranteed normalized (e.g. cached intermediates from
+    # ``_order_by_js``), and the clip step can also break sum-to-1.
     p = p / p.sum(); q = q / q.sum()
     m = 0.5 * (p + q)
     return float(0.5 * np.sum(p * np.log(p / m)) + 0.5 * np.sum(q * np.log(q / m)))
@@ -319,19 +347,22 @@ def _uniform_singleton(scope: Sequence[int]) -> PMF:
 
 
 def left_intersection(A: tuple, B: tuple) -> tuple:
-    """A∩B (left)：保留 A 的顺序，剔除不在 B 中的元素。"""
+    """Left intersection ``A inter B``: keep the order of ``A`` and drop
+    elements not in ``B``."""
     Bset = set(B)
     return tuple(x for x in A if x in Bset)
 
 
 def _combine_with_intersection(pmf_a: PMF, pmf_b: PMF, scope: Sequence[int],
                                 top_m: int, ordered: bool) -> PMF:
-    """LOS（ordered=True）与 DS（ordered=False）的统一实现。
+    """Unified implementation of LOS (``ordered=True``) and DS
+    (``ordered=False``).
 
-    两者唯一区别在交集元组的构造：
-        LOS: 保留 ``pmf_a`` 中事件 A 的顺序
-        DS : 集合交集后按全局升序排列
-    其它步骤（外积质量、冲突归一化、top_m 截断）相同。
+    The only difference is how the intersection tuple is built:
+        LOS: keep the order of event ``A`` from ``pmf_a``;
+        DS : take the set intersection and sort by global index.
+    Every other step (outer-product mass, conflict normalization, top_m
+    truncation) is shared.
     """
     if pmf_a.is_empty or pmf_b.is_empty:
         return pmf_a if not pmf_a.is_empty else pmf_b
@@ -385,13 +416,15 @@ def _combine_with_intersection(pmf_a: PMF, pmf_b: PMF, scope: Sequence[int],
 
 def left_orthogonal_sum(pmf_a: PMF, pmf_b: PMF, scope: Sequence[int],
                          top_m: int = 16) -> PMF:
-    """论文 Eq.(10) LOS：``pmf_a`` 是更可靠源，结果保留 A 的事件顺序。"""
+    """Paper Eq. (10), LOS: ``pmf_a`` is the more reliable source; the
+    output keeps the event order of ``A``."""
     return _combine_with_intersection(pmf_a, pmf_b, scope, top_m, ordered=True)
 
 
 def dempster_shafer_combination(pmf_a: PMF, pmf_b: PMF, scope: Sequence[int],
                                  top_m: int = 16) -> PMF:
-    """对称的 Dempster-Shafer 组合（用于 ``RPS-NoOrder`` 消融）。"""
+    """Symmetric Dempster-Shafer combination (used by the ``RPS-NoOrder``
+    ablation)."""
     return _combine_with_intersection(pmf_a, pmf_b, scope, top_m, ordered=False)
 
 
@@ -410,8 +443,9 @@ def _order_by_js(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
 
 def directional_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
                         scope: Sequence[int], top_m: int = 16) -> PMF:
-    """方向性融合（论文 Eq.10 + Section 4.2）：以 ``pmf_self`` 为锚，按 JS 散
-    度升序依次做 LOS。"""
+    """Directional fusion (paper Eq. 10 + Section 4.2): ``pmf_self`` is
+    the anchor; combine with neighbors in order of increasing JS
+    divergence using LOS."""
     if not neighbor_pmfs:
         return pmf_self
     fused = pmf_self
@@ -421,11 +455,13 @@ def directional_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
 
 
 def _collapse_to_unordered(pmf: PMF, scope: Sequence[int]) -> PMF:
-    """把 PMF 的有序排列事件合并为无序集合事件。
+    """Collapse a PMF's ordered permutation events into unordered set
+    events.
 
-    论文 Section 4.4.2 RPS-NoOrder 定义："collapsing ordered tuples to
-    unordered sets before fusion"。``(a, b)`` 与 ``(b, a)`` 合并成单一的
-    无序键 ``(min, max)``，质量相加。
+    Section 4.4.2 of the paper defines RPS-NoOrder as "collapsing ordered
+    tuples to unordered sets before fusion". Here ``(a, b)`` and
+    ``(b, a)`` are merged into the single unordered key ``(min, max)``,
+    with masses summed.
     """
     if pmf.is_empty:
         return pmf
@@ -445,11 +481,12 @@ def _collapse_to_unordered(pmf: PMF, scope: Sequence[int]) -> PMF:
 
 def symmetric_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
                       scope: Sequence[int], top_m: int = 16) -> PMF:
-    """RPS-Symmetric 消融（论文 Section 4.4.2 字面定义）。
+    """RPS-Symmetric ablation (literal definition from Section 4.4.2).
 
-    论文文字："directional LOS fusion is replaced by **symmetric
-    Dempster-Shafer combination**"。整条融合链都用 DS，**不使用 LOS**——
-    self 不作为 ordering anchor。DS 是对称运算，源的顺序不影响结果。
+    The paper says: "directional LOS fusion is replaced by **symmetric
+    Dempster-Shafer combination**". The whole fusion chain therefore uses
+    DS, **never LOS** -- self does not act as an ordering anchor. DS is a
+    symmetric operation, so the order of the sources does not matter.
     """
     if not neighbor_pmfs:
         return pmf_self
@@ -463,13 +500,14 @@ def symmetric_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
 
 def noorder_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
                     scope: Sequence[int], top_m: int = 16) -> PMF:
-    """RPS-NoOrder 消融（论文 Section 4.4.2 字面定义）。
+    """RPS-NoOrder ablation (literal definition from Section 4.4.2).
 
-    论文文字："the permutation structure is removed by **collapsing
-    ordered tuples to unordered sets before fusion**"。
+    The paper says: "the permutation structure is removed by **collapsing
+    ordered tuples to unordered sets before fusion**".
 
-    实现：所有 PMF 在融合前先 collapse 为无序集合事件，再按 DS 链合并。
-    输出的事件键是排序后的 tuple，确保 OPT 端无法从顺序里"恢复"任何信息。
+    Implementation: every PMF is collapsed to unordered set events before
+    fusion, then combined along a DS chain. Output event keys are sorted
+    tuples, so the OPT step cannot "recover" any information from order.
     """
     self_unord = _collapse_to_unordered(pmf_self, scope)
     if not neighbor_pmfs:
@@ -490,7 +528,8 @@ def noorder_fusion(pmf_self: PMF, neighbor_pmfs: Sequence[PMF],
 # ---------------------------------------------------------------------------
 
 def project_pmf(pmf: PMF, target_scope: Sequence[int]) -> PMF:
-    """把 PMF 投影到子作用域：保留事件中位于 ``target_scope`` 的元素，归一化。"""
+    """Project a PMF onto a sub-scope: keep only the elements of each
+    event that lie in ``target_scope``, then renormalize."""
     if pmf.is_empty:
         return PMF.empty()
     target_set = set(target_scope)
@@ -514,7 +553,8 @@ def project_pmf(pmf: PMF, target_scope: Sequence[int]) -> PMF:
 # ---------------------------------------------------------------------------
 
 def ordered_probability_transformation(pmf: PMF, scope: Sequence[int]) -> dict:
-    """OPT (论文 Eq.11)：终端元素不分配，前缀均分。"""
+    """OPT (paper Eq. 11): the terminal element of an event receives no
+    mass; the prefix splits the mass equally."""
     p = {a: 0.0 for a in scope}
     for A, m in zip(pmf.events, pmf.mass):
         if len(A) == 1:
@@ -536,15 +576,20 @@ def pmf_entropy(pmf: PMF) -> float:
 def confidence_gated_discount(opt_probs: dict, entropy: float, tau: float, *,
                                gain: float = 4.0,
                                base_keep: float = 1.0) -> dict:
-    """连续软折扣 ``γ_ij = base_keep · exp(-effective_gain · P_OPT(j))``。
+    """Continuous soft discount
+    ``gamma_ij = base_keep * exp(-effective_gain * P_OPT(j))``.
 
-    论文 Eq.(12) 是分段函数（高熵→1，低熵→ ``P / max P``）。这里改为单调连续：
+    Eq. (12) of the paper is piecewise (high entropy -> 1, low entropy ->
+    ``P / max P``). Here we replace it by a monotone continuous form:
 
-    - ``P_OPT(j) = 0`` (无嫌疑) → γ ≈ ``base_keep``（≈1，不折扣）
-    - ``P_OPT(j) → 1`` (确认故障) → γ → 0（强力压制）
-    - 高熵（H ≥ τ，证据弱）时 ``effective_gain`` 减半，避免不确定时过度反应。
+    - ``P_OPT(j) = 0`` (no suspicion) -> ``gamma ~ base_keep`` (close to 1,
+      no discount).
+    - ``P_OPT(j) -> 1`` (confirmed fault) -> ``gamma -> 0`` (strong
+      suppression).
+    - At high entropy (``H >= tau``, weak evidence) ``effective_gain`` is
+      halved to avoid overreaction when uncertain.
 
-    参数说明见 ``IMPLEMENTATION_NOTES.md``。
+    See ``IMPLEMENTATION_NOTES.md`` for the parameter description.
     """
     eff_gain = 0.5 * gain if entropy >= tau else gain
     return {a: float(base_keep * np.exp(-eff_gain * p))
@@ -552,7 +597,8 @@ def confidence_gated_discount(opt_probs: dict, entropy: float, tau: float, *,
 
 
 def calibrate_tau(entropy_history: Sequence[float], quantile: float = 0.95) -> float:
-    """把 τ 校准为无故障期 PMF 熵分布的指定分位（论文 Section 4.3）。"""
+    """Calibrate tau as the requested quantile of the fault-free PMF
+    entropy distribution (paper Section 4.3)."""
     if len(entropy_history) == 0:
         return float('inf')
     return float(np.quantile(np.asarray(entropy_history, dtype=float), quantile))

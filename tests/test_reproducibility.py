@@ -1,4 +1,5 @@
-"""可复现性测试：相同 seed 应当 byte-identical 输出。"""
+"""Reproducibility tests: identical seeds must produce byte-identical
+output."""
 
 import numpy as np
 
@@ -42,12 +43,12 @@ def test_different_seed_different_output():
         N=N, d=d, T=T, alpha=0.05, fault_config=fault_cfg, method="RPS-Full",
         W=W, adj=adj, cost=cost, cfg=cfg, seed=43,
     )
-    # 不同 seed 不应得到完全相同的轨迹
+    # Different seeds should not produce exactly the same trajectory.
     assert not np.allclose(err1, err2)
 
 
 def test_baseline_methods_reproducible():
-    """所有非 RPS 方法也应该 byte-identical 复现。"""
+    """All non-RPS methods must also reproduce byte-identically."""
     N, d, T, W, adj, cost, cfg, fault_cfg = _setup()
     for method in ("Hard-Threshold", "Uniform-Discount", "Byzantine-Resilient"):
         err1, _, _ = run_optimization(

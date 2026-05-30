@@ -1,4 +1,4 @@
-"""``statistics_utils`` 的单元测试。"""
+"""Unit tests for ``statistics_utils``."""
 
 import numpy as np
 
@@ -7,7 +7,7 @@ from statistics_utils import cohens_d, holm_bonferroni, wilcoxon_pvalue
 
 def test_cohens_d_zero_when_identical():
     x = np.array([1.0, 2.0, 3.0])
-    # 配对相同 → diff 全为 0；返回 0
+    # Pairing with itself -> all diffs are 0; return 0.
     assert cohens_d(x, x) == 0.0
 
 
@@ -20,10 +20,12 @@ def test_cohens_d_positive_when_y_larger():
 
 
 def test_holm_bonferroni_monotone():
-    """Holm 校正后的 p 值序列保持原始 p 的单调性。"""
+    """The Holm-corrected p-values preserve the monotonicity of the
+    raw p-values."""
     raw = [0.001, 0.01, 0.04, 0.05]
     adj = holm_bonferroni(raw)
-    # 输入升序时校正值也应非递减（Holm 性质）
+    # When the input is in ascending order, the corrected values are
+    # also non-decreasing (a property of Holm's procedure).
     assert all(adj[i] <= adj[i + 1] + 1e-12 for i in range(len(adj) - 1))
 
 
