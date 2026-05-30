@@ -401,7 +401,7 @@ def figure_3(ctx: ExperimentContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 4 — stability phase diagram
+# Figure 4 -- stability phase diagram
 # ---------------------------------------------------------------------------
 
 def figure_4(ctx: ExperimentContext) -> None:
@@ -459,7 +459,7 @@ def figure_4(ctx: ExperimentContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 5 — stress tests
+# Figure 5 -- stress tests
 # ---------------------------------------------------------------------------
 
 def figure_5(ctx: ExperimentContext) -> None:
@@ -518,7 +518,7 @@ def figure_5(ctx: ExperimentContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 6 — ablation
+# Figure 6 -- ablation
 # ---------------------------------------------------------------------------
 
 def figure_6(ctx: ExperimentContext) -> None:
@@ -554,7 +554,7 @@ def figure_6(ctx: ExperimentContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 7 — diagnostic delay (consumes fig2_mtcd)
+# Figure 7 -- diagnostic delay (consumes fig2_mtcd)
 # ---------------------------------------------------------------------------
 
 def figure_7(ctx: ExperimentContext) -> None:
@@ -591,7 +591,7 @@ def figure_7(ctx: ExperimentContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 8 — scale invariance
+# Figure 8 -- scale invariance
 # ---------------------------------------------------------------------------
 
 def figure_8(ctx: ExperimentContext) -> None:

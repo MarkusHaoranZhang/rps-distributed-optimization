@@ -8,7 +8,7 @@ Paper companion · Python 3.10+
 
 Companion implementation for the paper *Random Permutation Set-Based
 Diagnosis for Reliable Large-Scale Distributed Optimization Under Soft
-Faults*. The code closes the loop "diagnosis → soft discounting γ →
+Faults*. The code closes the loop "diagnosis -> soft discounting γ ->
 robust gradient tracking" and reproduces all 8 figures and 2 tables
 from the paper via Monte Carlo experiments.
 
@@ -70,15 +70,15 @@ After completion, the working directory will contain:
 
 | File | Paper location | `--figures N` value |
 |------|---------------|---|
-| `fig_preliminary.pdf` | Figure 1 — residual evolution | 1 |
-| `fig_ablation.pdf`    | Figure 2 — ablation effect sizes | 6 |
-| `fig_comparative.pdf` | Figure 3 — three-scenario convergence comparison | 2 |
-| `fig_diagnostic.pdf`  | Figure 4 — diagnostic delay | 7 |
-| `fig_scaling.pdf`     | Figure 5 — scale invariance | 8 |
-| `fig_sensitivity.pdf` | Figure 6 — parameter sensitivity | 3 |
-| `fig_stability.pdf`   | Figure 7 — stability phase diagram | 4 |
-| `fig_stress.pdf`      | Figure 8 — stress tests | 5 |
-| `results.json`        | All numbers underlying Tables 1 and 2 | — |
+| `fig_preliminary.pdf` | Figure 1 -- residual evolution | 1 |
+| `fig_ablation.pdf`    | Figure 2 -- ablation effect sizes | 6 |
+| `fig_comparative.pdf` | Figure 3 -- three-scenario convergence comparison | 2 |
+| `fig_diagnostic.pdf`  | Figure 4 -- diagnostic delay | 7 |
+| `fig_scaling.pdf`     | Figure 5 -- scale invariance | 8 |
+| `fig_sensitivity.pdf` | Figure 6 -- parameter sensitivity | 3 |
+| `fig_stability.pdf`   | Figure 7 -- stability phase diagram | 4 |
+| `fig_stress.pdf`      | Figure 8 -- stress tests | 5 |
+| `results.json`        | All numbers underlying Tables 1 and 2 | -- |
 
 > Note: the `N` in `--figures N` is the **internal execution order**, not
 > the paper figure number. The internal order exists so that internal
@@ -97,7 +97,7 @@ Compare the output with [`expected_results.json`](./expected_results.json).
 Specific numbers will fluctuate by ±10% due to random seeds, but
 **RPS-Full should consistently beat Hard-Threshold** (this is the central
 claim of paper Section 1, gated by `test_paper_core_claim`). However,
-**rankings against the other baselines are not stable in quick mode** —
+**rankings against the other baselines are not stable in quick mode** --
 see the "⚠ quick vs. full mode" warning below. The most direct evidence
 is the diagnostic metrics printed after internal figure 7 (paper Figure 4):
 
@@ -168,7 +168,7 @@ itemized account. In brief:
    std-increment of the residual norm sliding window; **does not read**
    ground-truth `δ`.
 4. **PMF complexity reduction**: two-stage event enumeration + z-score
-   replacing energy distance, O(E·s·M) → O(E).
+   replacing energy distance, O(E·s·M) -> O(E).
 5. **Diagnosis throttling** `diagnose_every`: LOS is the O(E²) bottleneck,
    so we recompute every 5 steps.
 6. **τ calibration**: accumulate PMF entropy during burn-in, then take
@@ -222,7 +222,7 @@ mode and ≈ 50 (×10⁻³) in full mode. **The qualitative ranking (RPS-Full
 
 Reasons (details in [IMPLEMENTATION_NOTES.md](./IMPLEMENTATION_NOTES.md)):
 
-1. **Eq.(7) treats δ as known in the paper** — the paper formula reads
+1. **Eq.(7) treats δ as known in the paper** -- the paper formula reads
    `Σ F_{i←j} δ_j` directly, but at runtime δ is unknown. Any
    implementation that does not read ground-truth δ uses a proxy δ
    (`magnitude_proxy`), introducing estimation error. The paper's

@@ -27,7 +27,7 @@ with negligible variance perturbation.
   `0.002 × 40 = 0.08`, which lies inside the small-fault regime of
   Section 4.4 (well below the typical gradient magnitude of 0.15).
   The earlier version (v0.4.6) used `drift_cap=80`, which pushed the
-  steady state to 0.16 — outside the small-fault boundary — and caused
+  steady state to 0.16 -- outside the small-fault boundary -- and caused
   the RPS-Full vs RPS-Sym gap to drown in misspecification noise.
   This was identified and fixed in v0.4.7.
 - A drift that "ramps gradually toward a steady state" is also a more
@@ -90,13 +90,13 @@ permutation event space `PES_k(Θ_i)`.
 
 **Rationale**:
 - The full `PES_k` has O(|Θ|^k) events; with h=2 the scope can reach
-  30+ agents, so k=3 yields ≈27000 events per step — directly
+  30+ agents, so k=3 yields ≈27000 events per step -- directly
   intractable.
 - Bayesian-style diagnosis naturally concentrates probability mass on
   a small number of agents, so restricting r ≥ 2 permutations to the
   top-k candidates incurs essentially no precision loss.
 - `proxy_global_weight` (default 0.5) ensures the agent itself is also
-  a candidate — an agent's own residual is the most sensitive signal
+  a candidate -- an agent's own residual is the most sensitive signal
   for its own fault.
 
 Tuning knobs: `RPSConfig.top_agents_k` (default 5),
@@ -111,7 +111,7 @@ Tuning knobs: `RPSConfig.top_agents_k` (default 5),
        1                          otherwise
 ```
 This is a piecewise function that becomes nearly binary at low entropy
-(top-1 → 0, others → 1).
+(top-1 -> 0, others -> 1).
 
 **Code** `rps_diagnosis.confidence_gated_discount`:
 ```
@@ -209,7 +209,7 @@ between.
   the ordering anchor; every pair of sources is symmetric.
 - `noorder_fusion`: first apply `_collapse_to_unordered` to fold both
   self and each neighbour PMF's ordered events to their sorted keys
-  ((a, b), (b, a) → (min, max)), then run a DS chain.
+  ((a, b), (b, a) -> (min, max)), then run a DS chain.
 
 **Rationale**:
 
@@ -218,13 +218,13 @@ between.
   with self", keeping self as the ordering anchor. This violates the
   paper's literal "replaced by symmetric DS" definition and let
   RPS-Sym mistakenly retain directional information at the last fusion
-  step — in practice RPS-Sym was approaching or even exceeding
+  step -- in practice RPS-Sym was approaching or even exceeding
   RPS-Full in several scenarios.
 - Earlier versions of `noorder_fusion` kept the PMF events ordered and
   only swapped the per-step LOS for DS. The event tuples themselves
   were still ordered (so (a, b) and (b, a) were distinct keys), and
   the downstream OPT step could recover ordering information from the
-  tuple order — a violation of the literal "collapsing before fusion"
+  tuple order -- a violation of the literal "collapsing before fusion"
   requirement.
 
 **After the fix** (v0.4.7): in quick mode (`drift_cap=40`), RPS-Full =
@@ -276,7 +276,7 @@ Constant (4.15 vs 4.74). This code reproduces the trend in the paper's
 table; the tension with the textual claim is from the paper itself.
 
 If a reader observes RPS-Full slightly worse than RPS-Sym by a few
-percent, this is not a bug — it is a faithful reproduction of the
+percent, this is not a bug -- it is a faithful reproduction of the
 paper-table behaviour. `directional_fusion`'s advantage shows up
 primarily under multi-fault, non-saturated scenarios; `RPS-Symmetric`,
 with its uniform aggregation, is naturally smoother under single-point
@@ -303,7 +303,7 @@ therefore be read as matching the *functional form* (the α/η⁻¹ ratio),
 can see the relationship directly.
 
 Bringing `κ_theo` numerically close to `κ_emp` would require
-recalibrating `c₁` and `L_OPT` — for which the paper would need to
+recalibrating `c₁` and `L_OPT` -- for which the paper would need to
 provide concrete values, or the reader would need to derive them.
 
 ## 14. Detection rate / false-alarm rate metrics
@@ -334,7 +334,7 @@ reported in paper Tables 1/2. Three reasons combine to produce this gap:
    numbers correspond to an "as-if δ is known" upper bound.
 2. **drift_cap** (Section 1 of these notes): paper Eq.(3) describes an
    unbounded linear drift, but Section 4.4 also assumes the small-fault
-   regime — the two are in internal tension. The code uses a cap so
+   regime -- the two are in internal tension. The code uses a cap so
    that drift ramps to a steady state, accumulating larger deviations
    than the unbounded formulation in Eq.(3) would produce.
 3. **Random seeds** (Section 4.4.4): the paper does not publish seeds;
@@ -351,19 +351,19 @@ The following directions were tried in attempts to push the code's
 Drift number closer to paper Table 2's "40% over next-best", and
 **either failed to improve or actively regressed**:
 
-- **Increase `top_agents_k` (5 → 10)** (v0.4.8 experiment): expanded
+- **Increase `top_agents_k` (5 -> 10)** (v0.4.8 experiment): expanded
   the candidate pool for r ≥ 2 multi-element events, which did increase
   PMF diversity, but pulled healthy agents into the candidate set and
   caused γ to discount agents that should not be discounted. RPS-Full's
   Constant-bias number regressed from 4.76 to 5.85. Reverted.
-- **Increase `top_m` (16 → 32)** (same experiment): combined with the
+- **Increase `top_m` (16 -> 32)** (same experiment): combined with the
   above, retaining more events at the PMF output did not improve results.
-- **Rewrite fusion implementation** (v0.4.6 → v0.4.7): rewrote
+- **Rewrite fusion implementation** (v0.4.6 -> v0.4.7): rewrote
   `symmetric_fusion` (pure DS chain) and `noorder_fusion` (folding
   before fusion) to match paper Section 4.4.2 literally. This step
-  **flipped the direction** — RPS-Full went from being worse than
-  RPS-Sym to being 12.5% better — but did not yet reach 40%.
-- **drift_cap 80 → 40** (v0.4.7 → v0.4.8): bring the steady-state
+  **flipped the direction** -- RPS-Full went from being worse than
+  RPS-Sym to being 12.5% better -- but did not yet reach 40%.
+- **drift_cap 80 -> 40** (v0.4.7 -> v0.4.8): bring the steady-state
   fault magnitude inside the small-fault regime (0.08 < the typical
   gradient magnitude 0.15). All methods' absolute numbers dropped by
   ~50%, but relative gaps did not change qualitatively.
@@ -377,7 +377,7 @@ require paper-author-level implementation knowledge):
   different proxy (e.g. EWMA-based or hypothesis-driven KF), PMF
   accuracy would change significantly, which in turn determines whether
   the fusion-stage differences fully manifest.
-- **Rewrite OPT → γ mapping** (IMPL §5): currently
+- **Rewrite OPT -> γ mapping** (IMPL §5): currently
   `γ = exp(-gain · P_OPT)` with gain=4. Paper Eq.(12) is piecewise.
   The two are similar at the extremes of P_OPT but differ in shape in
   the middle range (P_OPT ≈ 0.3-0.7), which affects RPS-Full's
@@ -420,7 +420,7 @@ faulty agent's Y state from polluting consensus". A natural-looking
 implementation is to also multiply Y by `A_eff`, but the semantics of
 `A_eff @ Y_k` is "discounted aggregation of neighbours' Y", which is
 the *same operation* as "Y propagating through the network in gradient
-tracking" — Y is itself accumulated via
+tracking" -- Y is itself accumulated via
 `A_eff @ Y_k + (∇f_new − ∇f_old)`, and should not be multiplied a
 second time inside the X update.
 
@@ -443,7 +443,7 @@ under small-sample MC:
 - "Advantage retained": the denominator is the RPS-vs-HT gap at loss=0,
   the numerator is the gap at the current loss. At loss=0 both RPS and
   HT have small final errors (~10⁻³), so the gap ratio is 0/0-like, and
-  the resulting "percentage" is mostly noise — making Figure 5's middle
+  the resulting "percentage" is mostly noise -- making Figure 5's middle
   subplot look very random.
 - "Isolation accuracy" similarly: the denominator is RPS isolation
   effectiveness under a single fault, the numerator is the same under
@@ -454,14 +454,14 @@ under small-sample MC:
 The code's `figure_5` therefore plots **raw final relative error**, with
 the y-label "Final relative error". The reader can still read the trend:
 
-- Loss rate up → final error up (subplot 5b is monotone increasing).
-- Number of simultaneous faults up → final error up (subplot 5c is
+- Loss rate up -> final error up (subplot 5b is monotone increasing).
+- Number of simultaneous faults up -> final error up (subplot 5c is
   monotone increasing).
 
 **The paper's "80%" and "isolation accuracy" should be read as rhetorical
 descriptions of trends**, not exact numbers readable off the figure. A
 reader who needs precise percentages would have to design a conversion
-rule before plotting — but any such conversion needs a ground-truth
+rule before plotting -- but any such conversion needs a ground-truth
 baseline, which conflicts with the no-ground-truth process-integrity
 constraint.
 
@@ -470,7 +470,7 @@ constraint.
 Paper Section 4.4 defines the small-fault regime as: "covariance
 perturbation induced by δ is negligible compared with the nominal
 residual covariance". Read literally, the criterion should be
-`Δstd / baseline_std → 0`.
+`Δstd / baseline_std -> 0`.
 
 The code in `verify_assumptions` uses a **weaker** proxy criterion: the
 median over neighbour residuals of `|Δmean|/|Δstd|` exceeding 0.5.
@@ -478,7 +478,7 @@ The reason:
 
 - The strict criterion `Δstd << baseline_std` does hold under our
   experimental setup (`Δstd` is about an order of magnitude smaller
-  than `baseline_std`), but is hard to measure stably — consensus
+  than `baseline_std`), but is hard to measure stably -- consensus
   dynamics themselves cause `baseline_std` to vary substantially even
   before the fault.
 - The weaker proxy `|Δmean| > |Δstd|` is the "mean shift is at least
@@ -493,7 +493,7 @@ strict verification should:
 3. Check a true "negligible" threshold like
    `Δstd / baseline_std < 0.1`.
 
-The current `verify_assumptions` does not do this — it is a known
+The current `verify_assumptions` does not do this -- it is a known
 coverage gap, not a process-integrity hole (the diagnosis path still
 does not read ground-truth).
 
@@ -512,7 +512,7 @@ by p_i).
   α=0.05 would behave very differently across (N, d, p) combinations.
 - After dividing by p_i, the local Hessian spectrum is decoupled from
   the sample size, and a single α converges stably across all three
-  benchmarks — which is the implementation prerequisite for the
+  benchmarks -- which is the implementation prerequisite for the
   "scale invariance" of Figure 8.
 - This is just a constant factor in the formula; it does not change
   `x*` and does not change the relative ordering of methods.
@@ -542,7 +542,7 @@ Ablation (Drift, T=600, MC=3):
 
 | Variant | Final ×10⁻³ | d vs Full |
 |---|---|---|
-| RPS-Full | 38.88 | — |
+| RPS-Full | 38.88 | -- |
 | RPS-NoOrder | 46.28 | 0.87 |
 | RPS-Symmetric | 46.28 | 0.87 |
 
@@ -552,7 +552,7 @@ paper reports d≈1.2-1.8 under N=50, MC=20).
 
 **RPS-Full vs UD/Byz**: under `--quick` (N=30, MC=3), RPS-Full ≈ 39.66
 is still slightly worse than UD/Byz ≈ 36.58. This is a small-scale-noise
-artefact of quick mode — UD is equivalent to a mild self-damping
+artefact of quick mode -- UD is equivalent to a mild self-damping
 `A_eff = 0.9 W + 0.1 I`, which is naturally favourable for small
 single-source signals. Reproducing the "40% over next-best" claim from
 paper §4.5.3 requires the full mode (N=50, MC=20, ~2 hours);

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rps-distributed-optimization"
-version = "0.4.8"
+version = "0.4.9"
 description = "RPS-driven diagnostically robust distributed optimization (paper companion)"
 readme = "README.md"
 requires-python = ">=3.10"

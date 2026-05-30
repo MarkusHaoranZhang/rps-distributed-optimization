@@ -19,7 +19,7 @@ from typing import Optional, TypedDict
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Permutation Mass Function — replaces the old (events, mass, masks) tuple
+# Permutation Mass Function -- replaces the old (events, mass, masks) tuple
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -111,7 +111,7 @@ class FaultConfig(TypedDict, total=False):
 
 
 # ---------------------------------------------------------------------------
-# RPSConfig — every tuning knob lives here
+# RPSConfig -- every tuning knob lives here
 # ---------------------------------------------------------------------------
 
 @dataclass

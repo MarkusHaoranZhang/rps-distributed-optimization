@@ -3,7 +3,34 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [0.4.8] — Big-tech-style PR review, second pass
+## [0.4.9] -- Documentation language pass
+
+Documentation-only release. No behavioural change; tests, lint, and
+type-check all pass on the same surface as v0.4.8.
+
+### Changed
+
+- All docstrings, inline comments, CLI help text, log messages, and
+  Markdown documentation translated from Chinese to English. Math
+  notation (Greek letters, inequalities, set operators) is kept; Chinese
+  punctuation, em-dashes, and prose `->` arrows have been replaced with
+  ASCII equivalents (`--` and `->`) per project style.
+- Affected files: `README.md`, `CHANGELOG.md`, `IMPLEMENTATION_NOTES.md`,
+  `expected_results.json`, `expected_results_full.json`, every root
+  `.py` source file, every `tests/test_*.py`, `pyproject.toml`,
+  `.github/workflows/ci.yml`.
+- No public API renamed; identifier names, function signatures, JSON
+  schema keys, and on-disk file names are unchanged.
+
+### Added
+
+- `tests/test_documentation_language.py`: parametrized regression
+  guard that scans every project source / Markdown / config file for
+  CJK ideographs, em-dashes, and Unicode prose arrows, plus a
+  collector self-check so an empty file list cannot silently bypass
+  the guards. Runs in <0.5 s so it has negligible CI cost.
+
+## [0.4.8] -- Big-tech-style PR review, second pass
 
 A complete line-by-line review of the v0.4.7 state surfaced 2 majors and
 5 minors. All 7 are addressed in this version.
@@ -22,7 +49,7 @@ A complete line-by-line review of the v0.4.7 state surfaced 2 majors and
   `_step_hard_threshold`**: the v0.4.7 comment suggested 0/1 was an
   "approximation" of an RPS-style probability, but it is in fact the
   literal behaviour of the χ² threshold never being crossed during the
-  fault period — i.e. the numerical evidence for the
+  fault period -- i.e. the numerical evidence for the
   "threshold-based detector ... oscillates / fails" phenomenon
   critiqued in paper §1. Comment rewritten to clarify that an HT MTCD
   near `T - onset` is the expected maximum, not an implementation
@@ -54,7 +81,7 @@ A complete line-by-line review of the v0.4.7 state surfaced 2 majors and
 - `mypy .`: Success, no issues found in 11 source files
 - `pytest tests/`: 127 passed (~74s)
 
-## [0.4.7] — Root-cause fix for the RPS ablation fusion implementations
+## [0.4.7] -- Root-cause fix for the RPS ablation fusion implementations
 
 A re-examination of `RPS-Symmetric` and `RPS-NoOrder` fusion against
 the literal definitions in paper Section 4.4.2 surfaced two
@@ -111,7 +138,7 @@ where "full mode RPS-Full was not better than RPS-Sym").
 ### Documentation
 - `IMPLEMENTATION_NOTES.md §1`: rewrote the meaning of the `drift_cap`
   default, with the small-fault-boundary argument that justifies the
-  v0.4.6→v0.4.7 change from 80 to 40.
+  v0.4.6->v0.4.7 change from 80 to 40.
 - `IMPLEMENTATION_NOTES.md §9`: rewritten in full, recording the
   reasons for the v0.4.7 fusion fix and the post-fix measured numbers.
 - `IMPLEMENTATION_NOTES.md §20`: rewritten from "quick mode ranking
@@ -120,7 +147,7 @@ where "full mode RPS-Full was not better than RPS-Sym").
   implementation bug rather than a boundary condition.
 - `README.md` warning callout updated accordingly.
 
-## [0.4.6] — Pre-release final review (extreme inspection)
+## [0.4.6] -- Pre-release final review (extreme inspection)
 
 A line-by-line review of all 11 source files + 11 test files + 5 doc
 files + CI config against the paper LaTeX, surfacing 1 critical bug
@@ -164,7 +191,7 @@ that crashed `--quick` and several documentation misalignments.
   it is needed (so that α=0.05 converges stably across (N, d, p)
   combinations).
 - `IMPLEMENTATION_NOTES.md §20`: the most important
-  reproduction-limitation disclosure before release — under quick
+  reproduction-limitation disclosure before release -- under quick
   mode, RPS-Full on Drift is ~4% worse than Uniform-Discount, which
   contradicts the direction of paper §4.5.3's "RPS outperforms
   next-best by over 40%" claim. Reasons (low signal-to-noise at N=30,
@@ -190,7 +217,7 @@ that crashed `--quick` and several documentation misalignments.
 - `python verify_assumptions.py`: 5 / 5 PASS.
 - `python main.py --quick`: 8 figures + results.json + Tables in 9 min.
 
-## [0.4.5] — Big-tech-style PR review
+## [0.4.5] -- Big-tech-style PR review
 
 A line-by-line PR review across all sources (3000 lines) and tests
 (1500 lines) found 12 majors + 16 minors. **All 28 are addressed in
@@ -281,7 +308,7 @@ is written this way".
   honestly aligned with the paper §4.4.4 wording about "minimum value
   ensuring strong connectivity".
 
-## [0.4.3] — Hidden-bug-suspicion audit
+## [0.4.3] -- Hidden-bug-suspicion audit
 
 This round revisited the project from the perspective of "assume there
 are still undiscovered bugs", and found two real ones.
@@ -336,12 +363,12 @@ are still undiscovered bugs", and found two real ones.
 - Temporary diagnostic script `_probe.py` (its mission of diagnosing
   fusion behaviour is complete).
 
-## [0.4.2] — Pre-release minimal hardening
+## [0.4.2] -- Pre-release minimal hardening
 
 ### Added
 - `LICENSE` (MIT): the legal declaration required for release.
 - `tests/test_paper_core_claim.py`: 4 regression tests guarding the
-  central claim of paper §1 — RPS-Full must significantly beat
+  central claim of paper §1 -- RPS-Full must significantly beat
   Hard-Threshold on Drift (N=30, T=500, MC=3, ~51 seconds).
 - `expected_results.json`: a snapshot of the numbers from `--quick` for
   readers to verify their reproductions are within the expected range.
@@ -353,10 +380,10 @@ are still undiscovered bugs", and found two real ones.
   RPS-Full is in fact worse than Hard-Threshold for N<30
   (misspecification error dominates). This is genuine
   scale-dependent algorithmic behaviour, not a bug, but the regression
-  test now anchors at N=30 — the smallest effective scale — to prevent
+  test now anchors at N=30 -- the smallest effective scale -- to prevent
   unintended future regressions.
 
-## [0.4.1] — Section 4.4.3 metrics + numerical-gap documentation
+## [0.4.1] -- Section 4.4.3 metrics + numerical-gap documentation
 
 ### Added
 - `experiments.detection_and_false_alarm_rates`: computes fault
@@ -387,7 +414,7 @@ are still undiscovered bugs", and found two real ones.
 - Removed unused local variable `healthy_agents` in
   `detection_and_false_alarm_rates` (ruff F841).
 
-## [0.4.0] — Paper-companion finalisation
+## [0.4.0] -- Paper-companion finalisation
 
 ### Fixed
 - **`tau_quantile` now actually drives τ calibration (important)**:
@@ -435,7 +462,7 @@ are still undiscovered bugs", and found two real ones.
   `noorder_fusion`, no need to fold during PMF generation.
 - `gamma_based_mtcd`: superseded by the paper-defined MTCD.
 
-## [0.3.0] — Long-term-evolution infrastructure
+## [0.3.0] -- Long-term-evolution infrastructure
 
 ### Added
 - `costs.CostModel` Protocol: formalises the duck-typed cost-model
@@ -446,7 +473,7 @@ are still undiscovered bugs", and found two real ones.
   aggregate norm).
 - `tests/test_config_validation.py`: 18 tests covering all validity
   boundaries of `RPSConfig` and `validate_fault_config`.
-- `tests/test_reproducibility.py`: same seed → byte-identical output.
+- `tests/test_reproducibility.py`: same seed -> byte-identical output.
 - `tests/test_smoke_pipeline.py`: pipeline-level smoke (writing real PDF).
 - `CONTRIBUTING.md`: a checklist for common maintenance tasks (adding
   a fault type / a diagnosis method / a cost model / a tuning knob /
@@ -478,7 +505,7 @@ are still undiscovered bugs", and found two real ones.
 - `LogRegCost._x_opt` type changed from implicit `None` to
   `Optional[ndarray]`.
 
-## [0.2.0] — Long-term-maintenance refactoring
+## [0.2.0] -- Long-term-maintenance refactoring
 
 ### Added
 - `config.py` centralises data structures and all tuning knobs.
@@ -506,7 +533,7 @@ are still undiscovered bugs", and found two real ones.
 - `run_optimization` split from a 230-line single function into
   `_step_hard_threshold` / `_step_uniform_discount` / `_step_rps`
   branch functions plus a main dispatcher.
-- PMF triple `(events, mass, masks)` → `PMF` dataclass (breaking
+- PMF triple `(events, mass, masks)` -> `PMF` dataclass (breaking
   API change; call sites updated).
 - Fault drift injection adds `drift_cap` default 100, ensuring the
   small-fault regime.
@@ -516,7 +543,7 @@ are still undiscovered bugs", and found two real ones.
   masking + diagonal compensation).
 - `magnitude_proxy` changed to `max(mean_inc, std_weight · std_inc)`.
 - PMF generation uses a z-score in place of energy distance,
-  O(E·s·M) → O(E).
+  O(E·s·M) -> O(E).
 - `main.py` split into `figure_1` ... `figure_8` plus
   `ExperimentContext` for shared state.
 - `main.py` no longer uses `hash(scenario)` as a seed (unstable);
@@ -540,7 +567,7 @@ are still undiscovered bugs", and found two real ones.
 - `HardThresholdDetector.gamma_matrix` removes the unused `W`
   parameter.
 
-## [0.1.0] — Initial version
+## [0.1.0] -- Initial version
 
 - First complete reproduction of the paper's 8 figures and 2 tables.
 - 7 methods (RPS-Full, 3 ablations, 3 baselines).
